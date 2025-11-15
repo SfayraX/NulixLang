@@ -1,0 +1,4 @@
+proc main:
+  let rocket_pos = 42 + 15;
+  actor Player:
+    let speed = 100;

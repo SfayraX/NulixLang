@@ -1,0 +1,20 @@
+# Сборка
+build/
+dist/
+out/
+target/
+
+# Зависимости
+node_modules/
+vendor/
+
+# Логи и кэш
+*.log
+npm-debug.log*
+.cache
+.env
+.env.local
+
+# ОС
+.DS_Store
+Thumbs.db
