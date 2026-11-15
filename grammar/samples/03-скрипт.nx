@@ -1,0 +1,46 @@
+// Скрипт уровня @high: инструкции верхнего уровня и операторы.
+import ui
+
+let names = ["Аня", "Борис", "Вера"]
+var total = 0
+for i in 0..<names.len() {
+	total += i * 2
+}
+let shown = names.map(func(n) { "привет, $n" })
+print("итого ${total + 1} из ${names.len()}")
+
+let big = 1_000_000
+let ratio = 2.5e-3
+let mask = (0b1010 | 0o17) & 0xFF
+let ok = not (total == 0) and (big > 10 or ratio < 1.0)
+let sign = if total >= 0 { 1 } else if total == -1 { 0 } else { -1 }
+let pair = (1, "один")
+let (num, word) = pair
+let text = """
+	многострочный текст с \$ и ${word}
+	"""
+let ch = '\n'
+let r = parse("12") catch err { 0 }
+let v = try await fetch(url)
+let w = await fetch(url) catch { default() }
+let s = a + b * c - d % 2
+let t = a & mask == 0
+let u = -x * y
+let z = x + f() catch { 0 }
+let q = try f() + try g()
+x.field[0].call(mut buf, 1)
+names[0] = "Яна"; total -= 1
+loop {
+	if total > 3 { break }
+	total += 1
+} end loop
+@prototype { experimental() }
+let kind = match take pair {
+	case (0, _) { "ноль" }
+	case (n, "один"), (n, "раз") { "один" }
+	case _ { "другое" }
+}
+let long = call(
+	first,
+	second,
+)

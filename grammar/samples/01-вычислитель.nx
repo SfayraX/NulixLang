@@ -1,0 +1,61 @@
+@file(production)
+import text.json.{parse, Value}
+import net.tcp as t
+
+/// Выражение: тестовая программа, составлена из конструкций спецификации.
+pub enum Expr {
+	Num(i64)
+	indirect Neg(Expr)
+	indirect Bin(op: Op, left: Expr, right: Expr)
+}
+
+enum Op {
+	Add
+	Sub
+	Mul
+	Div
+}
+
+pub enum EvalError {
+	DivByZero
+	Overflow(Str)
+}
+
+impl Eq for Op {}
+
+impl Display for EvalError {
+	func show[uses E](self, mut out: TextOut[uses E]) uses E {
+		match self {
+			case DivByZero { out.write("деление на ноль") }
+			case Overflow(what) { out.write("переполнение: $what") }
+		}
+	}
+}
+
+@system
+pub func eval(e: Expr) -> Result[i64, EvalError] {
+	match e {
+		case Num(n) { Ok(n) }
+		case Neg(inner) {
+			let v: i64 = try eval(inner)
+			Ok(-v)
+		}
+		case Bin(op, left, right) {
+			let a: i64 = try eval(left)
+			let b: i64 = try eval(right)
+			match op {
+				case Add { Ok(a + b) }
+				case Sub { Ok(a - b) }
+				case Mul { Ok(a * b) }
+				case Div if b == 0 { Err(EvalError.DivByZero) }
+				else { Ok(a / b) }
+			}
+		}
+	}
+} end eval
+
+test "сложение" {
+	let e: Expr = Bin(op: Op.Add, left: Num(2), right: Num(3))
+	assert eval(e) is Ok(5)
+	assert eval(Num(1)) is Ok(v) and v == 1, "единица"
+}
