@@ -1,0 +1,161 @@
+// Nulix — формальная грамматика. Принята 15 ноября 2026.
+// Запись: a b — подряд; a | b — выбор; a? — необязательно; a* — ноль и больше; a+ — один и больше;
+// "слово" — лексема как написана; ЗАГЛАВНЫЕ имена — лексемы из лексического раздела.
+// TERM — конец инструкции: его ставит лексер в конце строки или знак ";".
+// Пометка [П] — в тексте спецификации до 15 ноября 2026 этого не было; добавлено вместе с грамматикой.
+
+%declare NAME INT FLOAT STRING CHAR TERM ATTR
+
+// ───────── Файл ─────────
+file: (file_header TERM)? (import_decl TERM)* (top_item TERM)*
+file_header: "@file" "(" header_arg ("," header_arg)* ")"
+header_arg: NAME | "target" "(" NAME ")"                                  // [П] точная форма заголовка
+import_decl: "import" import_path ("as" NAME)?
+           | "import" import_path "." "{" import_name ("," import_name)* ","? "}"
+import_path: NAME | import_path "." NAME
+import_name: NAME ("as" NAME)?                                            // [П] as внутри скобок
+top_item: decl | plain_stmt                 // инструкции — только в главном файле @high-скрипта
+
+// ───────── Объявления ─────────
+decl: attrs? "pub"? decl_core                                             // [П] пометки стоят перед pub
+attrs: (attr TERM?)+
+attr: level | strictness | ATTR ("(" args? ")")?
+level: "@high" | "@system" | "@low" | "@naked"
+strictness: "@prototype" | "@develop" | "@production" | "@strict"
+decl_core: binding | func_decl | extern_func | extern_block | struct_decl | enum_decl
+         | interface_decl | impl_decl | type_decl | test_decl
+
+binding: ("let" | "var" | "const") bind_target (":" type)? "=" expr
+bind_target: NAME | tuple_pattern                                         // [П] разбор кортежа
+
+func_decl: func_sig block end_name?
+extern_func: "extern" STRING func_sig block end_name?
+func_sig: "func" NAME generics? "(" params? ")" sig_tail?
+sig_tail: reqs | "->" closed_type reqs? | "->" open_type
+end_name: "end" NAME
+
+generics: "[" generic_param ("," generic_param)* ","? "]"
+generic_param: NAME (":" bound)? | "uses" NAME ("without" req_set)? | "life" NAME
+bound: path_type ("and" path_type)*
+
+params: param ("," param)* ","?
+param: mode? NAME (":" type)? | mode? "self"
+mode: "mut" | "take"
+
+reqs: uses_clause without_clause? limit_clause? | without_clause limit_clause? | limit_clause   // [П] порядок частей
+uses_clause: "uses" req_set
+without_clause: "without" req_set
+limit_clause: "limit" limit_set
+req_set: req_item | "(" (req_item ("," req_item)* ","?)? ")"
+req_item: req_name | "trust"
+req_name: NAME | req_name "." NAME
+limit_set: limit_item | "(" limit_item ("," limit_item)* ","? ")"
+limit_item: NAME ("<=" | ">=") arith                                      // [П] знак ">="
+
+struct_decl: "struct" NAME generics? "{" fields? "}" end_name?
+fields: field (TERM field)* TERM?
+field: attrs? "pub"? NAME ":" type ("=" expr)?                            // [П] pub у поля
+enum_decl: "enum" NAME generics? "{" variants? "}" end_name?
+variants: variant (TERM variant)* TERM?
+variant: "indirect"? NAME variant_fields?                                 // [П] место слова indirect
+variant_fields: "(" type ")" | "(" named_field ("," named_field)* ","? ")"
+named_field: NAME ":" type
+interface_decl: "interface" NAME generics? (":" bound)? "{" members? "}" end_name?
+impl_decl: "impl" generics? path_type ("for" path_type)? "{" members? "}" end_impl?
+end_impl: "end" "impl" type_name ("for" type_name)?
+members: member (TERM member)* TERM?
+member: attrs? "pub"? (func_sig | func_decl | extern_func | binding)
+type_decl: "type" NAME generics? "=" type
+test_decl: "test" STRING block ("end" "test")?                            // [П] метка end test
+extern_block: "extern" STRING "trust" STRING "{" members? "}" ("end" "extern")?   // [П] метка end extern
+
+// ───────── Типы ─────────
+// closed_type и open_type различаются только тем, чем тип кончается: open_type кончается типом функции,
+// и идущие следом uses, without и limit относятся к этой функции, а не к внешней сигнатуре.
+type: closed_type | open_type
+closed_type: simple_type | "(" ")" | "(" type ")" | "(" type ("," type)+ ","? ")"    // [П] скобки и тип-кортеж
+simple_type: path_type | "any" path_type | "any"
+           | "ref" origin? simple_type | "mut" "ref" origin? simple_type
+           | "ptr" simple_type | "mut" "ptr" simple_type
+open_type: fn_type
+         | "ref" origin? open_type | "mut" "ref" origin? open_type
+         | "ptr" open_type | "mut" "ptr" open_type
+origin: "(" (NAME | "self") ")"                                      // [П] self как источник
+path_type: type_name generic_args?
+type_name: NAME | type_name "." NAME
+generic_args: "[" generic_arg ("," generic_arg)* ","? "]"
+generic_arg: type | INT | "uses" req_set | "life" life_src
+life_src: NAME | "self" | "(" NAME ("," NAME)* ")"
+fn_type: fn_kind? "func" "(" fn_params? ")" fn_tail?
+fn_params: fn_param ("," fn_param)* ","?
+fn_param: type | mode? (NAME | "_") ":" type                              // [П] имя и режим параметра
+fn_kind: "mut" | "take" | "any" | "extern" STRING
+fn_tail: reqs | "->" closed_type reqs? | "->" open_type
+
+// ───────── Инструкции ─────────
+block: "{" stmts? "}"
+stmts: stmt (TERM stmt)* TERM?
+stmt: binding | plain_stmt
+plain_stmt: expr | assign | for_stmt | while_stmt | loop_stmt
+          | "return" expr? | "break" NAME? | "continue" NAME?
+          | "assert" expr ("," expr)? | "discard" "self"
+assign: postfix assign_op expr
+assign_op: "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="   // [П] список составных
+for_stmt: label? "for" for_target "in" mode? expr block end_loop?
+while_stmt: label? "while" expr block end_loop?
+loop_stmt: label? "loop" block end_loop?
+label: NAME ":"
+for_target: NAME | "_" | tuple_pattern                                    // [П] _ и кортеж
+end_loop: "end" ("for" | "while" | "loop" | NAME)                         // [П] end while, end loop
+
+// ───────── Выражения ─────────
+// Приоритеты — частичный порядок [П]: and и or не смешиваются; сравнения не выстраиваются в цепочку;
+// арифметика, сдвиги, &, | и ^ — отдельные семейства, между собой только через скобки.
+expr: or_expr | and_expr | not_expr
+or_expr: not_expr ("or" not_expr)+
+and_expr: not_expr ("and" not_expr)+
+not_expr: "not" not_expr | comparison
+comparison: operand | operand cmp_op operand | operand "is" pattern
+cmp_op: "==" | "!=" | "<" | "<=" | ">" | ">="                             // [П] != > >=
+operand: arith | range | bit_and | bit_or | bit_xor | shift
+range: arith "..<" arith | arith "..=" arith
+arith: term | arith "+" term | arith "-" term
+term: unary | term "*" unary | term "/" unary | term "%" unary            // [П] + - * / % не названы
+bit_and: unary "&" unary | bit_and "&" unary
+bit_or: unary "|" unary | bit_or "|" unary
+bit_xor: unary "^" unary | bit_xor "^" unary
+shift: unary "<<" unary | unary ">>" unary
+unary: prefix | prefix "catch" NAME? block ("end" "catch")?                // [П] метка end catch
+prefix: postfix | "-" prefix | "~" prefix | "try" prefix | "await" prefix
+postfix: primary | postfix "." NAME | postfix "(" args? ")" | postfix "[" index_args "]"
+primary: NAME | "self" | literal
+       | "(" expr ")" | "(" ")" | "(" expr ("," expr)+ ","? ")"            // [П] значение-кортеж
+       | "[" (expr ("," expr)* ","?)? "]"
+       | if_expr | match_expr | closure | trust_expr | provide_expr | target_expr | level_block
+literal: INT | FLOAT | STRING | CHAR | "true" | "false"                    // [П] true и false
+args: arg ("," arg)* ","?
+arg: expr | "mut" expr | NAME ":" expr
+index_args: index_arg ("," index_arg)* ","?
+index_arg: expr | "any" path_type | "any" | "uses" req_set                // [П] типы в индексных скобках
+
+if_expr: if_chain ("end" "if")?
+if_chain: "if" expr block | "if" expr block "else" block | "if" expr block "else" if_chain
+match_expr: "match" mode? expr "{" (match_item TERM?)* "}" ("end" "match")?
+match_item: "case" pattern ("," pattern)* ("if" expr)? block ("end" "case")?   // [П] метки end case, end else
+          | "else" block ("end" "else")?
+closure: "func" "(" params? ")" sig_tail? block ("end" "func")?           // [П] результат, требования, метка
+trust_expr: "trust" STRING block ("end" "trust")?                         // [П] метка end trust
+provide_expr: "provide" provide_set block ("end" "provide")?              // [П] метка end provide
+provide_set: provide_item | "(" provide_item ("," provide_item)* ","? ")"
+provide_item: NAME "=" expr
+target_expr: "target" "{" (target_item TERM?)* "}" ("end" "target")?      // [П] метка end target
+target_item: "case" req_name block ("end" "case")? | "else" block ("end" "else")?   // [П] условие — одно имя
+level_block: (level | strictness) block ("end" (level | strictness))?    // [П] метка end @low
+
+// ───────── Образцы ─────────
+pattern: "_" | pat_literal | pat_path | pat_path "(" pattern_args? ")" | tuple_pattern
+pat_literal: INT | FLOAT | STRING | CHAR | "true" | "false" | "-" INT | "-" FLOAT   // [П] отрицательные числа
+pat_path: NAME | pat_path "." NAME
+pattern_args: pattern_arg ("," pattern_arg)* ","?
+pattern_arg: pattern | NAME ":" pattern | ".."                            // [П] форма «имя: образец»
+tuple_pattern: "(" pattern ("," pattern)+ ","? ")"                        // [П] образец-кортеж

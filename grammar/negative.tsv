@@ -1,0 +1,40 @@
+# стартовое правило <TAB> текст, который грамматика обязана отвергнуть
+expr	a and b or c
+expr	a or b and c
+expr	a < b < c
+expr	a == b == c
+expr	a << b + c
+expr	a + b << c
+expr	a & b | c
+expr	a + b & c
+expr	a << b << c
+expr	0..<5..<9
+expr	x++
+expr	a && b
+expr	!a
+expr	a ? b : c
+expr	a .. b
+expr	x is A, B
+expr	f(a b)
+expr	007
+expr	1abc
+expr	"не закрыта
+expr	a = b
+stmt	x = y = z
+stmt	let x
+stmt	if (a) b
+stmt	for x of xs { }
+decl	class A { }
+decl	func f() -> T
+decl	struct P { x: f32, y: f32 }
+file	if a { }\nelse { }
+file	func f()\n{ }
+file	func f() { }\nimport a
+type	func(A) uses net uses fs
+type	ref (T)
+type	func(mut T)
+type	func(take T)
+stmt	let limit = 5
+stmt	let target = 1
+stmts	let a = b\n..< c
+decl	func f() { } end

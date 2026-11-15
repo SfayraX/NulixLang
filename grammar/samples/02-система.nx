@@ -1,0 +1,98 @@
+@file(strict)
+import task
+import c
+
+@layout(c)
+@packed
+struct Header {
+	@offset(0) magic: u32
+	@offset(4) len: u16
+	pub flags: u16 = 0
+}
+
+struct Segments[life s] {
+	rest: ref(s) Str
+}
+
+struct Router[uses E] {
+	routes: List[Route[uses E]]
+}
+
+type Handler[uses E] = any func(Request) -> Response uses E
+
+interface Shape: Display {
+	func area(self) -> f64
+	func name(self) -> Str { "фигура" }
+}
+
+impl[uses E] Router[uses E] {
+	pub func add(mut self, path: Str, take h: Handler[uses E]) uses heap {
+		self.routes.push(Route(path: path, handler: h))
+	}
+
+	pub func serve(self, req: Request) -> Result[Response, Error] uses (E, suspend) {
+		for r in self.routes {
+			if r.path == req.path {
+				return Ok(try await r.handler(req))
+			}
+		}
+		Err(Error.NotFound)
+	}
+} end impl Router
+
+impl Iterator for Segments {
+	func next(mut self) -> Option[ref(self) Str] { None }
+}
+
+@system
+func first[T: Eq and Hash](xs: ref List[T]) -> ref(xs) T without (heap, crash) limit stack <= 4096 {
+	xs.get(0)
+}
+
+@link("z")
+extern "C" trust "сигнатуры сверены с zlib.h" {
+	func crc32(crc: c.ulong, buf: ptr c.uchar, len: c.uint) -> c.ulong
+	func deflateEnd(strm: mut ptr c.void) -> c.int uses trust
+}
+
+extern "C" func on_tick() {
+	TICKS.add(1)
+}
+
+let TICKS: Atomic[u64] = Atomic[u64].new(0)
+const PAGE: usize = 4096
+
+@low
+func checksum(data: ref Bytes) -> u32 {
+	target {
+		case x86.sse4_2 {
+			var crc: u32 = 0
+			for b in data { crc = x86.crc32_u8(crc, b) }
+			crc
+		}
+		else {
+			var crc: u32 = 0xFFFF_FFFF
+			for b in data {
+				crc = (crc >> 8) ^ TABLE[u8((crc ^ u32(b)) & 0xFF)]
+			}
+			~crc
+		}
+	}
+}
+
+func read_reg(p: ptr u32) -> u32 uses trust {
+	trust "адрес регистра задан профилем платы" { p.read() }
+}
+
+func with_fake_fs() -> Result[(), any Error] {
+	provide (fs = MemFs.new(), clock = FakeClock.new()) {
+		let f = try fs.open("a.txt")
+		outer: for line in f.lines() {
+			while true {
+				if line.is_empty() { continue outer }
+				break
+			}
+		}
+	}
+	Ok(())
+}

@@ -1,0 +1,223 @@
+# фрагмент из спецификации <TAB> стартовое правило ("-" — пропуск) <TAB> текст для разбора или причина пропуска
+{	-	знак: открывает блок
+;	-	знак: конец инструкции
+@	-	знак: начало пометки
+nulix fmt	-	команда, не код
+nulix test	-	команда, не код
+++	-	оператора нет; проверено отрицательным примером
+--	-	оператора нет; проверено отрицательным примером
+asm(…) { … }	-	запись операндов вставок — открытый вопрос спецификации
+@file(…)	-	заглушка; форма проверена на @file(production)
+} end имя	decl	func имя() { } end имя
+end impl Router	decl	impl Router { } end impl Router
+end impl Iterator for Segments	decl	impl Iterator for Segments { } end impl Iterator for Segments
+end for	stmt	for x in xs { } end for
+end if	stmt	if a { } end if
+end match	stmt	match x { } end match
+//	expr	x // до конца строки
+/* … */	expr	/* a /* вложенный */ b */ x
+///	file	/// документация\nfunc f() { }
+x: i64	stmt	let x: i64 = 0
+func имя(параметры) -> Результат { … }	decl	func имя(параметры) -> Результат { }
+func max[T: Ord](a: T, b: T) -> T	func_sig	
+Pair[i64, Str]	type	
+max[i64](a, b)	expr	
+type Имя = Тип	decl	
+type Handler[uses E] = any func(Request) -> Response uses E	decl	
+test "имя" { … }	decl	test "имя" { }
+Num(i64)	variant	
+Some(T)	variant	
+impl Интерфейс for Тип { … }	decl	impl Интерфейс for Тип { }
+impl Тип { … }	decl	impl Тип { }
+interface Error: Display	decl	interface Error: Display { }
+[T: Eq and Hash]	generics	
+impl Add for Vec2	decl	impl Add for Vec2 { }
+impl Eq for Cell {}	decl	
+impl Copy for Vec2 {}	decl	
+any Shape	type	
+any	type	
+func(…)	type	func()
+[T]	generics	
+any func(…)	type	any func()
+extern "C" func	type	extern "C" func()
+impl Drop for T { func drop(mut self) }	decl	
+take self	param	
+discard self	stmt	
+$x	expr	"$x"
+func show[uses E](self, mut out: TextOut[uses E]) uses E	func_sig	
+[uses E without suspend]	generics	
+impl[T] List[T]	decl	impl[T] List[T] { }
+impl[uses E] Router[uses E]	decl	impl[uses E] Router[uses E] { }
+impl List[i32]	decl	impl List[i32] { }
+Rect(w: 2.0, h: 3.0)	expr	
+List[T].new()	expr	
+Set[T].from(items)	expr	
+Array[u32, 256].filled(0)	expr	
+gap: f32 = 0.0	field	
+Array[T, N]	type	
+[a, b, c]	expr	
+graphemes()	expr	s.graphemes()
+else if	stmt	if a { } else if b { }
+match значение { case образец { … } else { … } }	expr	match значение { case образец { } else { } }
+case Bin(op, left, right)	match_item	case Bin(op, left, right) { }
+case '-', '−'	match_item	case '-', '−' { }
+case Div if b == 0	match_item	case Div if b == 0 { }
+значение is образец	expr	
+if r is Ok(v) { … }	stmt	if r is Ok(v) { }
+for x in xs	stmt	for x in xs { }
+while условие	stmt	while условие { }
+outer: for …	stmt	outer: for x in xs { }
+break outer	stmt	
+0..<10	expr	
+0..=10	expr	
+catch { … }	expr	f() catch { }
+catch err { … }	expr	f() catch err { }
+assert условие	stmt	
+assert условие, "пояснение"	stmt	
+try await	expr	try await f()
+func(p) { … }	expr	func(p) { }
+$name	expr	"$name"
+${выражение}	expr	"${выражение}"
+\$	expr	"\$"
+0x	expr	0x1F
+0b	expr	0b1010
+0o	expr	0o17
+"…"	expr	
+"""…"""	expr	
+'a'	expr	
+u8(x)	expr	
+without crash	reqs	
+sort(mut data)	expr	
+for x in mut xs	stmt	for x in mut xs { }
+for x in take xs	stmt	for x in take xs { }
+match x	expr	match x { }
+x is …	expr	x is A
+match mut x	expr	match mut x { }
+match take x	expr	match take x { }
+mut func(…)	type	mut func()
+take func(…)	type	take func()
+any func(Event) -> …	type	any func(Event) -> T
+take handler	param	
+mut func	type	mut func()
+take func	type	take func()
+s.spawn	expr	
+task.race	expr	
+task.timeout	expr	
+task.shield	expr	
+task.scope	expr	
+take f: take func()	param	
+ref T	type	
+mut ref T	type	
+-> ref(xs) T	sig_tail	
+struct Segments[life s]	decl	struct Segments[life s] { }
+rest: ref(s) Str	field	
+-> Segments[life path]	sig_tail	
+[life (a, b)]	generic_args	
+Shared[T]	type	
+Weak[T]	type	
+Atomic[T]	type	
+@high	attr	
+@system	attr	
+@low	attr	
+@naked	attr	
+@prototype	attr	
+@develop	attr	
+@production	attr	
+@strict	attr	
+@low { … }	stmt	@low { }
+@file(production)	file_header	
+@gpu(vertex)	attr	
+@gpu(fragment)	attr	
+@gpu(compute)	attr	
+limit stack <= 4096	reqs	
+func(T) -> U uses net	type	
+uses (net, fs)	reqs	
+without (heap, block, crash)	reqs	
+()	type	
+[T, U, uses E]	generics	
+struct Router[uses E]	decl	struct Router[uses E] { }
+Router[uses fs]	type	
+func(Str) -> T uses E without suspend	type	
+target { case возможность { … } else { … } }	expr	target { case возможность { } else { } }
+x86.crc32_u8	expr	
+provide fs = disk { … }	expr	provide fs = disk { }
+provide (fs = disk, net = fake)	expr	provide (fs = disk, net = fake) { }
+trust "обоснование" { … }	expr	trust "обоснование" { }
+uses trust	reqs	
+extern "C" trust "обоснование" { … }	decl	extern "C" trust "обоснование" { }
+@link("z")	attr	
+c.int	type	
+c.long	type	
+c.size_t	type	
+c.void	type	
+extern "C" func имя() { … }	decl	extern "C" func имя() { }
+extern "C" func()	type	
+c.CString(s)	expr	
+Str.from_c(p)	expr	
+Str.from_c_lossy(p)	expr	
+ptr T	type	
+mut ptr T	type	
+is_null()	expr	p.is_null()
+read()	expr	p.read()
+write()	expr	p.write()
+p.поле	expr	
+cast[T]()	expr	p.cast[T]()
+size_of[T]()	expr	
+@layout(c)	attr	
+@align(N)	attr	
+@packed	attr	
+@offset(N)	attr	
+@section("имя")	attr	
+import net.tcp	import_decl	
+tcp.connect	expr	
+import text.json.{parse, Value}	import_decl	
+import task.{Signal}	import_decl	
+import task	import_decl	
+Ordering.Relaxed	expr	
+func main()	decl	func main() { }
+media.camera()	expr	
+func(M) -> View[Msg] uses heap	type	
+ui.Task[Msg]	type	
+ui.Task[Msg, uses (net, suspend)]	type	
+Result[(), any Error]	type	
+modules.load[Editor](url)	expr	
+any Editor	type	
+[life s]	generics	
+Array[T, N].filled	expr	
+task.scope_limited(1000, f)	expr	
+x.clone()	expr	
+ui.Icon.Close	expr	
+Eq and Hash	bound	
+for x in v	stmt	for x in v { }
+Router[uses (net, suspend, heap)]	type	
+target(lm3s6965)	file_header	@file(production, target(lm3s6965))
+# примеры к решениям от 15 ноября 2026 (не из текста спецификации)
++ xs.any(f)	expr	xs.any(f)
++ xs.take(3)	expr	xs.take(3)
++ re.match(s)	expr	re.match(s)
++ e.target()	expr	e.target()
++ tok.type	expr	tok.type
++ let end = start + len	stmt	let end = start + len
++ xs[start..<end]	expr	xs[start..<end]
++ let type = tok.type	stmt	let type = tok.type
++ test(x)	expr	test(x)
++ let test = 1	stmt	let test = 1
++ discard(x)	expr	discard(x)
++ type Имя = Тип	decl	type Имя = Тип
++ test "имя" { }	decl	test "имя" { }
++ discard self	stmt	discard self
++ impl It { func take(self, n: usize) -> It { self }; func any(self) -> bool { true } }	decl	impl It { func take(self, n: usize) -> It { self }; func any(self) -> bool { true } }
++ func(mut model: Model, msg: Msg) -> Task[Msg]	type	func(mut model: Model, msg: Msg) -> Task[Msg]
++ func(take f: take func())	type	func(take f: take func())
++ func(_: i64)	type	func(_: i64)
++ func(mut ref T)	type	func(mut ref T)
++ func(mut x: mut ref T)	type	func(mut x: mut ref T)
++ match x { case A { } end case\nelse { } end else\n} end match	stmt	match x { case A { } end case\nelse { } end else\n} end match
++ f() catch { } end catch	expr	f() catch { } end catch
++ f() catch err { 0 } end catch	expr	f() catch err { 0 } end catch
++ func(x) { } end func	expr	func(x) { } end func
++ @low { } end @low	stmt	@low { } end @low
++ target { case x86.sse4_2 { } end case\nelse { } end else\n} end target	expr	target { case x86.sse4_2 { } end case\nelse { } end else\n} end target
++ let ys = xs\n  .map(f)\n  // комментарий\n  .filter(g)\nlet z = 1	stmts	let ys = xs\n  .map(f)\n  // комментарий\n  .filter(g)\nlet z = 1
++ if i == end { } end if	stmt	if i == end { } end if
++ for type in types { }	stmt	for type in types { }
