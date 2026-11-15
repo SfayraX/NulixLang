@@ -1,0 +1,255 @@
+# эталонные лексемы: пример <TAB> конец инструкции в конце текста <TAB> текст <TAB> OK или ERROR <TAB> лексемы
+frag:1	0	func имя() { } end имя	OK	kw:func	NAME:имя	kw:(	kw:)	kw:{	kw:}	kw:end	NAME:имя
+frag:2	0	impl Router { } end impl Router	OK	kw:impl	NAME:Router	kw:{	kw:}	kw:end	kw:impl	NAME:Router
+frag:3	0	impl Iterator for Segments { } end impl Iterator for Segments	OK	kw:impl	NAME:Iterator	kw:for	NAME:Segments	kw:{	kw:}	kw:end	kw:impl	NAME:Iterator	kw:for	NAME:Segments
+frag:4	0	for x in xs { } end for	OK	kw:for	NAME:x	kw:in	NAME:xs	kw:{	kw:}	kw:end	kw:for
+frag:5	0	if a { } end if	OK	kw:if	NAME:a	kw:{	kw:}	kw:end	kw:if
+frag:6	0	match x { } end match	OK	kw:match	NAME:x	kw:{	kw:}	kw:end	kw:match
+frag:7	0	x // до конца строки	OK	NAME:x
+frag:8	0	/* a /* вложенный */ b */ x	OK	NAME:x
+frag:9	1	/// документация\nfunc f() { }	OK	kw:func	NAME:f	kw:(	kw:)	kw:{	kw:}	TERM
+frag:10	0	let x: i64 = 0	OK	kw:let	NAME:x	kw::	NAME:i64	kw:=	INT:0
+frag:11	0	func имя(параметры) -> Результат { }	OK	kw:func	NAME:имя	kw:(	NAME:параметры	kw:)	kw:->	NAME:Результат	kw:{	kw:}
+frag:12	0	func max[T: Ord](a: T, b: T) -> T	OK	kw:func	NAME:max	kw:[	NAME:T	kw::	NAME:Ord	kw:]	kw:(	NAME:a	kw::	NAME:T	kw:,	NAME:b	kw::	NAME:T	kw:)	kw:->	NAME:T
+frag:13	0	Pair[i64, Str]	OK	NAME:Pair	kw:[	NAME:i64	kw:,	NAME:Str	kw:]
+frag:14	0	max[i64](a, b)	OK	NAME:max	kw:[	NAME:i64	kw:]	kw:(	NAME:a	kw:,	NAME:b	kw:)
+frag:15	0	type Имя = Тип	OK	kw:type	NAME:Имя	kw:=	NAME:Тип
+frag:16	0	type Handler[uses E] = any func(Request) -> Response uses E	OK	kw:type	NAME:Handler	kw:[	kw:uses	NAME:E	kw:]	kw:=	kw:any	kw:func	kw:(	NAME:Request	kw:)	kw:->	NAME:Response	kw:uses	NAME:E
+frag:17	0	test "имя" { }	OK	kw:test	STRING:"имя"	kw:{	kw:}
+frag:18	0	Num(i64)	OK	NAME:Num	kw:(	NAME:i64	kw:)
+frag:19	0	Some(T)	OK	NAME:Some	kw:(	NAME:T	kw:)
+frag:20	0	impl Интерфейс for Тип { }	OK	kw:impl	NAME:Интерфейс	kw:for	NAME:Тип	kw:{	kw:}
+frag:21	0	impl Тип { }	OK	kw:impl	NAME:Тип	kw:{	kw:}
+frag:22	0	interface Error: Display { }	OK	kw:interface	NAME:Error	kw::	NAME:Display	kw:{	kw:}
+frag:23	0	[T: Eq and Hash]	OK	kw:[	NAME:T	kw::	NAME:Eq	kw:and	NAME:Hash	kw:]
+frag:24	0	impl Add for Vec2 { }	OK	kw:impl	NAME:Add	kw:for	NAME:Vec2	kw:{	kw:}
+frag:25	0	impl Eq for Cell {}	OK	kw:impl	NAME:Eq	kw:for	NAME:Cell	kw:{	kw:}
+frag:26	0	impl Copy for Vec2 {}	OK	kw:impl	NAME:Copy	kw:for	NAME:Vec2	kw:{	kw:}
+frag:27	0	any Shape	OK	kw:any	NAME:Shape
+frag:28	0	any	OK	kw:any
+frag:29	0	func()	OK	kw:func	kw:(	kw:)
+frag:30	0	[T]	OK	kw:[	NAME:T	kw:]
+frag:31	0	any func()	OK	kw:any	kw:func	kw:(	kw:)
+frag:32	0	extern "C" func()	OK	kw:extern	STRING:"C"	kw:func	kw:(	kw:)
+frag:33	0	impl Drop for T { func drop(mut self) }	OK	kw:impl	NAME:Drop	kw:for	NAME:T	kw:{	kw:func	NAME:drop	kw:(	kw:mut	kw:self	kw:)	kw:}
+frag:34	0	take self	OK	kw:take	kw:self
+frag:35	0	discard self	OK	kw:discard	kw:self
+frag:36	0	"$x"	OK	STRING:"$x"
+frag:37	0	func show[uses E](self, mut out: TextOut[uses E]) uses E	OK	kw:func	NAME:show	kw:[	kw:uses	NAME:E	kw:]	kw:(	kw:self	kw:,	kw:mut	NAME:out	kw::	NAME:TextOut	kw:[	kw:uses	NAME:E	kw:]	kw:)	kw:uses	NAME:E
+frag:38	0	[uses E without suspend]	OK	kw:[	kw:uses	NAME:E	kw:without	NAME:suspend	kw:]
+frag:39	0	impl[T] List[T] { }	OK	kw:impl	kw:[	NAME:T	kw:]	NAME:List	kw:[	NAME:T	kw:]	kw:{	kw:}
+frag:40	0	impl[uses E] Router[uses E] { }	OK	kw:impl	kw:[	kw:uses	NAME:E	kw:]	NAME:Router	kw:[	kw:uses	NAME:E	kw:]	kw:{	kw:}
+frag:41	0	impl List[i32] { }	OK	kw:impl	NAME:List	kw:[	NAME:i32	kw:]	kw:{	kw:}
+frag:42	0	Rect(w: 2.0, h: 3.0)	OK	NAME:Rect	kw:(	NAME:w	kw::	FLOAT:2.0	kw:,	NAME:h	kw::	FLOAT:3.0	kw:)
+frag:43	0	List[T].new()	OK	NAME:List	kw:[	NAME:T	kw:]	kw:.	NAME:new	kw:(	kw:)
+frag:44	0	Set[T].from(items)	OK	NAME:Set	kw:[	NAME:T	kw:]	kw:.	NAME:from	kw:(	NAME:items	kw:)
+frag:45	0	Array[u32, 256].filled(0)	OK	NAME:Array	kw:[	NAME:u32	kw:,	INT:256	kw:]	kw:.	NAME:filled	kw:(	INT:0	kw:)
+frag:46	0	gap: f32 = 0.0	OK	NAME:gap	kw::	NAME:f32	kw:=	FLOAT:0.0
+frag:47	0	Array[T, N]	OK	NAME:Array	kw:[	NAME:T	kw:,	NAME:N	kw:]
+frag:48	0	[a, b, c]	OK	kw:[	NAME:a	kw:,	NAME:b	kw:,	NAME:c	kw:]
+frag:49	0	s.graphemes()	OK	NAME:s	kw:.	NAME:graphemes	kw:(	kw:)
+frag:50	0	if a { } else if b { }	OK	kw:if	NAME:a	kw:{	kw:}	kw:else	kw:if	NAME:b	kw:{	kw:}
+frag:51	0	match значение { case образец { } else { } }	OK	kw:match	NAME:значение	kw:{	kw:case	NAME:образец	kw:{	kw:}	kw:else	kw:{	kw:}	kw:}
+frag:52	0	case Bin(op, left, right) { }	OK	kw:case	NAME:Bin	kw:(	NAME:op	kw:,	NAME:left	kw:,	NAME:right	kw:)	kw:{	kw:}
+frag:53	0	case '-', '−' { }	OK	kw:case	CHAR:'-'	kw:,	CHAR:'−'	kw:{	kw:}
+frag:54	0	case Div if b == 0 { }	OK	kw:case	NAME:Div	kw:if	NAME:b	kw:==	INT:0	kw:{	kw:}
+frag:55	0	значение is образец	OK	NAME:значение	kw:is	NAME:образец
+frag:56	0	if r is Ok(v) { }	OK	kw:if	NAME:r	kw:is	NAME:Ok	kw:(	NAME:v	kw:)	kw:{	kw:}
+frag:57	0	for x in xs { }	OK	kw:for	NAME:x	kw:in	NAME:xs	kw:{	kw:}
+frag:58	0	while условие { }	OK	kw:while	NAME:условие	kw:{	kw:}
+frag:59	0	outer: for x in xs { }	OK	NAME:outer	kw::	kw:for	NAME:x	kw:in	NAME:xs	kw:{	kw:}
+frag:60	0	break outer	OK	kw:break	NAME:outer
+frag:61	0	0..<10	OK	INT:0	kw:..<	INT:10
+frag:62	0	0..=10	OK	INT:0	kw:..=	INT:10
+frag:63	0	f() catch { }	OK	NAME:f	kw:(	kw:)	kw:catch	kw:{	kw:}
+frag:64	0	f() catch err { }	OK	NAME:f	kw:(	kw:)	kw:catch	NAME:err	kw:{	kw:}
+frag:65	0	assert условие	OK	kw:assert	NAME:условие
+frag:66	0	assert условие, "пояснение"	OK	kw:assert	NAME:условие	kw:,	STRING:"пояснение"
+frag:67	0	try await f()	OK	kw:try	kw:await	NAME:f	kw:(	kw:)
+frag:68	0	func(p) { }	OK	kw:func	kw:(	NAME:p	kw:)	kw:{	kw:}
+frag:69	0	"$name"	OK	STRING:"$name"
+frag:70	0	"${выражение}"	OK	STRING:"${выражение}"
+frag:71	0	"\\$"	OK	STRING:"\\$"
+frag:72	0	0x1F	OK	INT:0x1F
+frag:73	0	0b1010	OK	INT:0b1010
+frag:74	0	0o17	OK	INT:0o17
+frag:75	0	"…"	OK	STRING:"…"
+frag:76	0	"""…"""	OK	STRING:"""…"""
+frag:77	0	'a'	OK	CHAR:'a'
+frag:78	0	u8(x)	OK	NAME:u8	kw:(	NAME:x	kw:)
+frag:79	0	without crash	OK	kw:without	NAME:crash
+frag:80	0	sort(mut data)	OK	NAME:sort	kw:(	kw:mut	NAME:data	kw:)
+frag:81	0	for x in mut xs { }	OK	kw:for	NAME:x	kw:in	kw:mut	NAME:xs	kw:{	kw:}
+frag:82	0	for x in take xs { }	OK	kw:for	NAME:x	kw:in	kw:take	NAME:xs	kw:{	kw:}
+frag:83	0	match x { }	OK	kw:match	NAME:x	kw:{	kw:}
+frag:84	0	x is A	OK	NAME:x	kw:is	NAME:A
+frag:85	0	match mut x { }	OK	kw:match	kw:mut	NAME:x	kw:{	kw:}
+frag:86	0	match take x { }	OK	kw:match	kw:take	NAME:x	kw:{	kw:}
+frag:87	0	mut func()	OK	kw:mut	kw:func	kw:(	kw:)
+frag:88	0	take func()	OK	kw:take	kw:func	kw:(	kw:)
+frag:89	0	any func(Event) -> T	OK	kw:any	kw:func	kw:(	NAME:Event	kw:)	kw:->	NAME:T
+frag:90	0	take handler	OK	kw:take	NAME:handler
+frag:91	0	mut func()	OK	kw:mut	kw:func	kw:(	kw:)
+frag:92	0	take func()	OK	kw:take	kw:func	kw:(	kw:)
+frag:93	0	s.spawn	OK	NAME:s	kw:.	NAME:spawn
+frag:94	0	task.race	OK	NAME:task	kw:.	NAME:race
+frag:95	0	task.timeout	OK	NAME:task	kw:.	NAME:timeout
+frag:96	0	task.shield	OK	NAME:task	kw:.	NAME:shield
+frag:97	0	task.scope	OK	NAME:task	kw:.	NAME:scope
+frag:98	0	take f: take func()	OK	kw:take	NAME:f	kw::	kw:take	kw:func	kw:(	kw:)
+frag:99	0	ref T	OK	kw:ref	NAME:T
+frag:100	0	mut ref T	OK	kw:mut	kw:ref	NAME:T
+frag:101	0	-> ref(xs) T	OK	kw:->	kw:ref	kw:(	NAME:xs	kw:)	NAME:T
+frag:102	0	struct Segments[life s] { }	OK	kw:struct	NAME:Segments	kw:[	kw:life	NAME:s	kw:]	kw:{	kw:}
+frag:103	0	rest: ref(s) Str	OK	NAME:rest	kw::	kw:ref	kw:(	NAME:s	kw:)	NAME:Str
+frag:104	0	-> Segments[life path]	OK	kw:->	NAME:Segments	kw:[	kw:life	NAME:path	kw:]
+frag:105	0	[life (a, b)]	OK	kw:[	kw:life	kw:(	NAME:a	kw:,	NAME:b	kw:)	kw:]
+frag:106	0	Shared[T]	OK	NAME:Shared	kw:[	NAME:T	kw:]
+frag:107	0	Weak[T]	OK	NAME:Weak	kw:[	NAME:T	kw:]
+frag:108	0	Atomic[T]	OK	NAME:Atomic	kw:[	NAME:T	kw:]
+frag:109	0	@high	OK	kw:@high
+frag:110	0	@system	OK	kw:@system
+frag:111	0	@low	OK	kw:@low
+frag:112	0	@naked	OK	kw:@naked
+frag:113	0	@prototype	OK	kw:@prototype
+frag:114	0	@develop	OK	kw:@develop
+frag:115	0	@production	OK	kw:@production
+frag:116	0	@strict	OK	kw:@strict
+frag:117	0	@low { }	OK	kw:@low	kw:{	kw:}
+frag:118	0	@file(production)	OK	kw:@file	kw:(	NAME:production	kw:)
+frag:119	0	@gpu(vertex)	OK	ATTR:@gpu	kw:(	NAME:vertex	kw:)
+frag:120	0	@gpu(fragment)	OK	ATTR:@gpu	kw:(	NAME:fragment	kw:)
+frag:121	0	@gpu(compute)	OK	ATTR:@gpu	kw:(	NAME:compute	kw:)
+frag:122	0	limit stack <= 4096	OK	kw:limit	NAME:stack	kw:<=	INT:4096
+frag:123	0	func(T) -> U uses net	OK	kw:func	kw:(	NAME:T	kw:)	kw:->	NAME:U	kw:uses	NAME:net
+frag:124	0	uses (net, fs)	OK	kw:uses	kw:(	NAME:net	kw:,	NAME:fs	kw:)
+frag:125	0	without (heap, block, crash)	OK	kw:without	kw:(	NAME:heap	kw:,	NAME:block	kw:,	NAME:crash	kw:)
+frag:126	0	()	OK	kw:(	kw:)
+frag:127	0	[T, U, uses E]	OK	kw:[	NAME:T	kw:,	NAME:U	kw:,	kw:uses	NAME:E	kw:]
+frag:128	0	struct Router[uses E] { }	OK	kw:struct	NAME:Router	kw:[	kw:uses	NAME:E	kw:]	kw:{	kw:}
+frag:129	0	Router[uses fs]	OK	NAME:Router	kw:[	kw:uses	NAME:fs	kw:]
+frag:130	0	func(Str) -> T uses E without suspend	OK	kw:func	kw:(	NAME:Str	kw:)	kw:->	NAME:T	kw:uses	NAME:E	kw:without	NAME:suspend
+frag:131	0	target { case возможность { } else { } }	OK	kw:target	kw:{	kw:case	NAME:возможность	kw:{	kw:}	kw:else	kw:{	kw:}	kw:}
+frag:132	0	x86.crc32_u8	OK	NAME:x86	kw:.	NAME:crc32_u8
+frag:133	0	provide fs = disk { }	OK	kw:provide	NAME:fs	kw:=	NAME:disk	kw:{	kw:}
+frag:134	0	provide (fs = disk, net = fake) { }	OK	kw:provide	kw:(	NAME:fs	kw:=	NAME:disk	kw:,	NAME:net	kw:=	NAME:fake	kw:)	kw:{	kw:}
+frag:135	0	trust "обоснование" { }	OK	kw:trust	STRING:"обоснование"	kw:{	kw:}
+frag:136	0	uses trust	OK	kw:uses	kw:trust
+frag:137	0	extern "C" trust "обоснование" { }	OK	kw:extern	STRING:"C"	kw:trust	STRING:"обоснование"	kw:{	kw:}
+frag:138	0	@link("z")	OK	ATTR:@link	kw:(	STRING:"z"	kw:)
+frag:139	0	c.int	OK	NAME:c	kw:.	NAME:int
+frag:140	0	c.long	OK	NAME:c	kw:.	NAME:long
+frag:141	0	c.size_t	OK	NAME:c	kw:.	NAME:size_t
+frag:142	0	c.void	OK	NAME:c	kw:.	NAME:void
+frag:143	0	extern "C" func имя() { }	OK	kw:extern	STRING:"C"	kw:func	NAME:имя	kw:(	kw:)	kw:{	kw:}
+frag:144	0	extern "C" func()	OK	kw:extern	STRING:"C"	kw:func	kw:(	kw:)
+frag:145	0	c.CString(s)	OK	NAME:c	kw:.	NAME:CString	kw:(	NAME:s	kw:)
+frag:146	0	Str.from_c(p)	OK	NAME:Str	kw:.	NAME:from_c	kw:(	NAME:p	kw:)
+frag:147	0	Str.from_c_lossy(p)	OK	NAME:Str	kw:.	NAME:from_c_lossy	kw:(	NAME:p	kw:)
+frag:148	0	ptr T	OK	kw:ptr	NAME:T
+frag:149	0	mut ptr T	OK	kw:mut	kw:ptr	NAME:T
+frag:150	0	p.is_null()	OK	NAME:p	kw:.	NAME:is_null	kw:(	kw:)
+frag:151	0	p.read()	OK	NAME:p	kw:.	NAME:read	kw:(	kw:)
+frag:152	0	p.write()	OK	NAME:p	kw:.	NAME:write	kw:(	kw:)
+frag:153	0	p.поле	OK	NAME:p	kw:.	NAME:поле
+frag:154	0	p.cast[T]()	OK	NAME:p	kw:.	NAME:cast	kw:[	NAME:T	kw:]	kw:(	kw:)
+frag:155	0	size_of[T]()	OK	NAME:size_of	kw:[	NAME:T	kw:]	kw:(	kw:)
+frag:156	0	@layout(c)	OK	ATTR:@layout	kw:(	NAME:c	kw:)
+frag:157	0	@align(N)	OK	ATTR:@align	kw:(	NAME:N	kw:)
+frag:158	0	@packed	OK	ATTR:@packed
+frag:159	0	@offset(N)	OK	ATTR:@offset	kw:(	NAME:N	kw:)
+frag:160	0	@section("имя")	OK	ATTR:@section	kw:(	STRING:"имя"	kw:)
+frag:161	0	import net.tcp	OK	kw:import	NAME:net	kw:.	NAME:tcp
+frag:162	0	tcp.connect	OK	NAME:tcp	kw:.	NAME:connect
+frag:163	0	import text.json.{parse, Value}	OK	kw:import	NAME:text	kw:.	NAME:json	kw:.	kw:{	NAME:parse	kw:,	NAME:Value	kw:}
+frag:164	0	import task.{Signal}	OK	kw:import	NAME:task	kw:.	kw:{	NAME:Signal	kw:}
+frag:165	0	import task	OK	kw:import	NAME:task
+frag:166	0	Ordering.Relaxed	OK	NAME:Ordering	kw:.	NAME:Relaxed
+frag:167	0	func main() { }	OK	kw:func	NAME:main	kw:(	kw:)	kw:{	kw:}
+frag:168	0	media.camera()	OK	NAME:media	kw:.	NAME:camera	kw:(	kw:)
+frag:169	0	func(M) -> View[Msg] uses heap	OK	kw:func	kw:(	NAME:M	kw:)	kw:->	NAME:View	kw:[	NAME:Msg	kw:]	kw:uses	NAME:heap
+frag:170	0	ui.Task[Msg]	OK	NAME:ui	kw:.	NAME:Task	kw:[	NAME:Msg	kw:]
+frag:171	0	ui.Task[Msg, uses (net, suspend)]	OK	NAME:ui	kw:.	NAME:Task	kw:[	NAME:Msg	kw:,	kw:uses	kw:(	NAME:net	kw:,	NAME:suspend	kw:)	kw:]
+frag:172	0	Result[(), any Error]	OK	NAME:Result	kw:[	kw:(	kw:)	kw:,	kw:any	NAME:Error	kw:]
+frag:173	0	modules.load[Editor](url)	OK	NAME:modules	kw:.	NAME:load	kw:[	NAME:Editor	kw:]	kw:(	NAME:url	kw:)
+frag:174	0	any Editor	OK	kw:any	NAME:Editor
+frag:175	0	[life s]	OK	kw:[	kw:life	NAME:s	kw:]
+frag:176	0	Array[T, N].filled	OK	NAME:Array	kw:[	NAME:T	kw:,	NAME:N	kw:]	kw:.	NAME:filled
+frag:177	0	task.scope_limited(1000, f)	OK	NAME:task	kw:.	NAME:scope_limited	kw:(	INT:1000	kw:,	NAME:f	kw:)
+frag:178	0	x.clone()	OK	NAME:x	kw:.	NAME:clone	kw:(	kw:)
+frag:179	0	ui.Icon.Close	OK	NAME:ui	kw:.	NAME:Icon	kw:.	NAME:Close
+frag:180	0	Eq and Hash	OK	NAME:Eq	kw:and	NAME:Hash
+frag:181	0	for x in v { }	OK	kw:for	NAME:x	kw:in	NAME:v	kw:{	kw:}
+frag:182	0	Router[uses (net, suspend, heap)]	OK	NAME:Router	kw:[	kw:uses	kw:(	NAME:net	kw:,	NAME:suspend	kw:,	NAME:heap	kw:)	kw:]
+frag:183	0	@file(production, target(lm3s6965))	OK	kw:@file	kw:(	NAME:production	kw:,	kw:target	kw:(	NAME:lm3s6965	kw:)	kw:)
+frag:184	0	xs.any(f)	OK	NAME:xs	kw:.	NAME:any	kw:(	NAME:f	kw:)
+frag:185	0	xs.take(3)	OK	NAME:xs	kw:.	NAME:take	kw:(	INT:3	kw:)
+frag:186	0	re.match(s)	OK	NAME:re	kw:.	NAME:match	kw:(	NAME:s	kw:)
+frag:187	0	e.target()	OK	NAME:e	kw:.	NAME:target	kw:(	kw:)
+frag:188	0	tok.type	OK	NAME:tok	kw:.	NAME:type
+frag:189	0	let end = start + len	OK	kw:let	NAME:end	kw:=	NAME:start	kw:+	NAME:len
+frag:190	0	xs[start..<end]	OK	NAME:xs	kw:[	NAME:start	kw:..<	NAME:end	kw:]
+frag:191	0	let type = tok.type	OK	kw:let	NAME:type	kw:=	NAME:tok	kw:.	NAME:type
+frag:192	0	test(x)	OK	NAME:test	kw:(	NAME:x	kw:)
+frag:193	0	let test = 1	OK	kw:let	NAME:test	kw:=	INT:1
+frag:194	0	discard(x)	OK	NAME:discard	kw:(	NAME:x	kw:)
+frag:195	0	type Имя = Тип	OK	kw:type	NAME:Имя	kw:=	NAME:Тип
+frag:196	0	test "имя" { }	OK	kw:test	STRING:"имя"	kw:{	kw:}
+frag:197	0	discard self	OK	kw:discard	kw:self
+frag:198	0	impl It { func take(self, n: usize) -> It { self }; func any(self) -> bool { true } }	OK	kw:impl	NAME:It	kw:{	kw:func	NAME:take	kw:(	kw:self	kw:,	NAME:n	kw::	NAME:usize	kw:)	kw:->	NAME:It	kw:{	kw:self	kw:}	TERM	kw:func	NAME:any	kw:(	kw:self	kw:)	kw:->	NAME:bool	kw:{	kw:true	kw:}	kw:}
+frag:199	0	func(mut model: Model, msg: Msg) -> Task[Msg]	OK	kw:func	kw:(	kw:mut	NAME:model	kw::	NAME:Model	kw:,	NAME:msg	kw::	NAME:Msg	kw:)	kw:->	NAME:Task	kw:[	NAME:Msg	kw:]
+frag:200	0	func(take f: take func())	OK	kw:func	kw:(	kw:take	NAME:f	kw::	kw:take	kw:func	kw:(	kw:)	kw:)
+frag:201	0	func(_: i64)	OK	kw:func	kw:(	kw:_	kw::	NAME:i64	kw:)
+frag:202	0	func(mut ref T)	OK	kw:func	kw:(	kw:mut	kw:ref	NAME:T	kw:)
+frag:203	0	func(mut x: mut ref T)	OK	kw:func	kw:(	kw:mut	NAME:x	kw::	kw:mut	kw:ref	NAME:T	kw:)
+frag:204	0	match x { case A { } end case\nelse { } end else\n} end match	OK	kw:match	NAME:x	kw:{	kw:case	NAME:A	kw:{	kw:}	kw:end	kw:case	TERM	kw:else	kw:{	kw:}	kw:end	kw:else	TERM	kw:}	kw:end	kw:match
+frag:205	0	f() catch { } end catch	OK	NAME:f	kw:(	kw:)	kw:catch	kw:{	kw:}	kw:end	kw:catch
+frag:206	0	f() catch err { 0 } end catch	OK	NAME:f	kw:(	kw:)	kw:catch	NAME:err	kw:{	INT:0	kw:}	kw:end	kw:catch
+frag:207	0	func(x) { } end func	OK	kw:func	kw:(	NAME:x	kw:)	kw:{	kw:}	kw:end	kw:func
+frag:208	0	@low { } end @low	OK	kw:@low	kw:{	kw:}	kw:end	kw:@low
+frag:209	0	target { case x86.sse4_2 { } end case\nelse { } end else\n} end target	OK	kw:target	kw:{	kw:case	NAME:x86	kw:.	NAME:sse4_2	kw:{	kw:}	kw:end	kw:case	TERM	kw:else	kw:{	kw:}	kw:end	kw:else	TERM	kw:}	kw:end	kw:target
+frag:210	1	let ys = xs\n  .map(f)\n  // комментарий\n  .filter(g)\nlet z = 1	OK	kw:let	NAME:ys	kw:=	NAME:xs	kw:.	NAME:map	kw:(	NAME:f	kw:)	kw:.	NAME:filter	kw:(	NAME:g	kw:)	TERM	kw:let	NAME:z	kw:=	INT:1	TERM
+frag:211	0	if i == end { } end if	OK	kw:if	NAME:i	kw:==	NAME:end	kw:{	kw:}	kw:end	kw:if
+frag:212	0	for type in types { }	OK	kw:for	NAME:type	kw:in	NAME:types	kw:{	kw:}
+neg:1	0	a and b or c	OK	NAME:a	kw:and	NAME:b	kw:or	NAME:c
+neg:2	0	a or b and c	OK	NAME:a	kw:or	NAME:b	kw:and	NAME:c
+neg:3	0	a < b < c	OK	NAME:a	kw:<	NAME:b	kw:<	NAME:c
+neg:4	0	a == b == c	OK	NAME:a	kw:==	NAME:b	kw:==	NAME:c
+neg:5	0	a << b + c	OK	NAME:a	kw:<<	NAME:b	kw:+	NAME:c
+neg:6	0	a + b << c	OK	NAME:a	kw:+	NAME:b	kw:<<	NAME:c
+neg:7	0	a & b | c	OK	NAME:a	kw:&	NAME:b	kw:|	NAME:c
+neg:8	0	a + b & c	OK	NAME:a	kw:+	NAME:b	kw:&	NAME:c
+neg:9	0	a << b << c	OK	NAME:a	kw:<<	NAME:b	kw:<<	NAME:c
+neg:10	0	0..<5..<9	OK	INT:0	kw:..<	INT:5	kw:..<	INT:9
+neg:11	0	x++	OK	NAME:x	kw:+	kw:+
+neg:12	0	a && b	OK	NAME:a	kw:&	kw:&	NAME:b
+neg:13	0	!a	ERROR
+neg:14	0	a ? b : c	ERROR
+neg:15	0	a .. b	OK	NAME:a	kw:..	NAME:b
+neg:16	0	x is A, B	OK	NAME:x	kw:is	NAME:A	kw:,	NAME:B
+neg:17	0	f(a b)	OK	NAME:f	kw:(	NAME:a	NAME:b	kw:)
+neg:18	0	007	ERROR
+neg:19	0	1abc	ERROR
+neg:20	0	"не закрыта	ERROR
+neg:21	0	a = b	OK	NAME:a	kw:=	NAME:b
+neg:22	0	x = y = z	OK	NAME:x	kw:=	NAME:y	kw:=	NAME:z
+neg:23	0	let x	OK	kw:let	NAME:x
+neg:24	0	if (a) b	OK	kw:if	kw:(	NAME:a	kw:)	NAME:b
+neg:25	0	for x of xs { }	OK	kw:for	NAME:x	NAME:of	NAME:xs	kw:{	kw:}
+neg:26	0	class A { }	OK	NAME:class	NAME:A	kw:{	kw:}
+neg:27	0	func f() -> T	OK	kw:func	NAME:f	kw:(	kw:)	kw:->	NAME:T
+neg:28	0	struct P { x: f32, y: f32 }	OK	kw:struct	NAME:P	kw:{	NAME:x	kw::	NAME:f32	kw:,	NAME:y	kw::	NAME:f32	kw:}
+neg:29	1	if a { }\nelse { }	OK	kw:if	NAME:a	kw:{	kw:}	TERM	kw:else	kw:{	kw:}	TERM
+neg:30	1	func f()\n{ }	OK	kw:func	NAME:f	kw:(	kw:)	TERM	kw:{	kw:}	TERM
+neg:31	1	func f() { }\nimport a	OK	kw:func	NAME:f	kw:(	kw:)	kw:{	kw:}	TERM	kw:import	NAME:a	TERM
+neg:32	0	func(A) uses net uses fs	OK	kw:func	kw:(	NAME:A	kw:)	kw:uses	NAME:net	kw:uses	NAME:fs
+neg:33	0	ref (T)	OK	kw:ref	kw:(	NAME:T	kw:)
+neg:34	0	func(mut T)	OK	kw:func	kw:(	kw:mut	NAME:T	kw:)
+neg:35	0	func(take T)	OK	kw:func	kw:(	kw:take	NAME:T	kw:)
+neg:36	0	let limit = 5	OK	kw:let	kw:limit	kw:=	INT:5
+neg:37	0	let target = 1	OK	kw:let	kw:target	kw:=	INT:1
+neg:38	1	let a = b\n..< c	OK	kw:let	NAME:a	kw:=	NAME:b	TERM	kw:..<	NAME:c	TERM
+neg:39	0	func f() { } end	OK	kw:func	NAME:f	kw:(	kw:)	kw:{	kw:}	kw:end
+sample:01-вычислитель.nx	1	@file(production)\nimport text.json.{parse, Value}\nimport net.tcp as t\n\n/// Выражение: тестовая программа, составлена из конструкций спецификации.\npub enum Expr {\n\tNum(i64)\n\tindirect Neg(Expr)\n\tindirect Bin(op: Op, left: Expr, right: Expr)\n}\n\nenum Op {\n\tAdd\n\tSub\n\tMul\n\tDiv\n}\n\npub enum EvalError {\n\tDivByZero\n\tOverflow(Str)\n}\n\nimpl Eq for Op {}\n\nimpl Display for EvalError {\n\tfunc show[uses E](self, mut out: TextOut[uses E]) uses E {\n\t\tmatch self {\n\t\t\tcase DivByZero { out.write("деление на ноль") }\n\t\t\tcase Overflow(what) { out.write("переполнение: $what") }\n\t\t}\n\t}\n}\n\n@system\npub func eval(e: Expr) -> Result[i64, EvalError] {\n\tmatch e {\n\t\tcase Num(n) { Ok(n) }\n\t\tcase Neg(inner) {\n\t\t\tlet v: i64 = try eval(inner)\n\t\t\tOk(-v)\n\t\t}\n\t\tcase Bin(op, left, right) {\n\t\t\tlet a: i64 = try eval(left)\n\t\t\tlet b: i64 = try eval(right)\n\t\t\tmatch op {\n\t\t\t\tcase Add { Ok(a + b) }\n\t\t\t\tcase Sub { Ok(a - b) }\n\t\t\t\tcase Mul { Ok(a * b) }\n\t\t\t\tcase Div if b == 0 { Err(EvalError.DivByZero) }\n\t\t\t\telse { Ok(a / b) }\n\t\t\t}\n\t\t}\n\t}\n} end eval\n\ntest "сложение" {\n\tlet e: Expr = Bin(op: Op.Add, left: Num(2), right: Num(3))\n\tassert eval(e) is Ok(5)\n\tassert eval(Num(1)) is Ok(v) and v == 1, "единица"\n}\n	OK	kw:@file	kw:(	NAME:production	kw:)	TERM	kw:import	NAME:text	kw:.	NAME:json	kw:.	kw:{	NAME:parse	kw:,	NAME:Value	kw:}	TERM	kw:import	NAME:net	kw:.	NAME:tcp	kw:as	NAME:t	TERM	kw:pub	kw:enum	NAME:Expr	kw:{	NAME:Num	kw:(	NAME:i64	kw:)	TERM	kw:indirect	NAME:Neg	kw:(	NAME:Expr	kw:)	TERM	kw:indirect	NAME:Bin	kw:(	NAME:op	kw::	NAME:Op	kw:,	NAME:left	kw::	NAME:Expr	kw:,	NAME:right	kw::	NAME:Expr	kw:)	TERM	kw:}	TERM	kw:enum	NAME:Op	kw:{	NAME:Add	TERM	NAME:Sub	TERM	NAME:Mul	TERM	NAME:Div	TERM	kw:}	TERM	kw:pub	kw:enum	NAME:EvalError	kw:{	NAME:DivByZero	TERM	NAME:Overflow	kw:(	NAME:Str	kw:)	TERM	kw:}	TERM	kw:impl	NAME:Eq	kw:for	NAME:Op	kw:{	kw:}	TERM	kw:impl	NAME:Display	kw:for	NAME:EvalError	kw:{	kw:func	NAME:show	kw:[	kw:uses	NAME:E	kw:]	kw:(	kw:self	kw:,	kw:mut	NAME:out	kw::	NAME:TextOut	kw:[	kw:uses	NAME:E	kw:]	kw:)	kw:uses	NAME:E	kw:{	kw:match	kw:self	kw:{	kw:case	NAME:DivByZero	kw:{	NAME:out	kw:.	NAME:write	kw:(	STRING:"деление на ноль"	kw:)	kw:}	TERM	kw:case	NAME:Overflow	kw:(	NAME:what	kw:)	kw:{	NAME:out	kw:.	NAME:write	kw:(	STRING:"переполнение: $what"	kw:)	kw:}	TERM	kw:}	TERM	kw:}	TERM	kw:}	TERM	kw:@system	kw:pub	kw:func	NAME:eval	kw:(	NAME:e	kw::	NAME:Expr	kw:)	kw:->	NAME:Result	kw:[	NAME:i64	kw:,	NAME:EvalError	kw:]	kw:{	kw:match	NAME:e	kw:{	kw:case	NAME:Num	kw:(	NAME:n	kw:)	kw:{	NAME:Ok	kw:(	NAME:n	kw:)	kw:}	TERM	kw:case	NAME:Neg	kw:(	NAME:inner	kw:)	kw:{	kw:let	NAME:v	kw::	NAME:i64	kw:=	kw:try	NAME:eval	kw:(	NAME:inner	kw:)	TERM	NAME:Ok	kw:(	kw:-	NAME:v	kw:)	TERM	kw:}	TERM	kw:case	NAME:Bin	kw:(	NAME:op	kw:,	NAME:left	kw:,	NAME:right	kw:)	kw:{	kw:let	NAME:a	kw::	NAME:i64	kw:=	kw:try	NAME:eval	kw:(	NAME:left	kw:)	TERM	kw:let	NAME:b	kw::	NAME:i64	kw:=	kw:try	NAME:eval	kw:(	NAME:right	kw:)	TERM	kw:match	NAME:op	kw:{	kw:case	NAME:Add	kw:{	NAME:Ok	kw:(	NAME:a	kw:+	NAME:b	kw:)	kw:}	TERM	kw:case	NAME:Sub	kw:{	NAME:Ok	kw:(	NAME:a	kw:-	NAME:b	kw:)	kw:}	TERM	kw:case	NAME:Mul	kw:{	NAME:Ok	kw:(	NAME:a	kw:*	NAME:b	kw:)	kw:}	TERM	kw:case	NAME:Div	kw:if	NAME:b	kw:==	INT:0	kw:{	NAME:Err	kw:(	NAME:EvalError	kw:.	NAME:DivByZero	kw:)	kw:}	TERM	kw:else	kw:{	NAME:Ok	kw:(	NAME:a	kw:/	NAME:b	kw:)	kw:}	TERM	kw:}	TERM	kw:}	TERM	kw:}	TERM	kw:}	kw:end	NAME:eval	TERM	kw:test	STRING:"сложение"	kw:{	kw:let	NAME:e	kw::	NAME:Expr	kw:=	NAME:Bin	kw:(	NAME:op	kw::	NAME:Op	kw:.	NAME:Add	kw:,	NAME:left	kw::	NAME:Num	kw:(	INT:2	kw:)	kw:,	NAME:right	kw::	NAME:Num	kw:(	INT:3	kw:)	kw:)	TERM	kw:assert	NAME:eval	kw:(	NAME:e	kw:)	kw:is	NAME:Ok	kw:(	INT:5	kw:)	TERM	kw:assert	NAME:eval	kw:(	NAME:Num	kw:(	INT:1	kw:)	kw:)	kw:is	NAME:Ok	kw:(	NAME:v	kw:)	kw:and	NAME:v	kw:==	INT:1	kw:,	STRING:"единица"	TERM	kw:}	TERM
+sample:02-система.nx	1	@file(strict)\nimport task\nimport c\n\n@layout(c)\n@packed\nstruct Header {\n\t@offset(0) magic: u32\n\t@offset(4) len: u16\n\tpub flags: u16 = 0\n}\n\nstruct Segments[life s] {\n\trest: ref(s) Str\n}\n\nstruct Router[uses E] {\n\troutes: List[Route[uses E]]\n}\n\ntype Handler[uses E] = any func(Request) -> Response uses E\n\ninterface Shape: Display {\n\tfunc area(self) -> f64\n\tfunc name(self) -> Str { "фигура" }\n}\n\nimpl[uses E] Router[uses E] {\n\tpub func add(mut self, path: Str, take h: Handler[uses E]) uses heap {\n\t\tself.routes.push(Route(path: path, handler: h))\n\t}\n\n\tpub func serve(self, req: Request) -> Result[Response, Error] uses (E, suspend) {\n\t\tfor r in self.routes {\n\t\t\tif r.path == req.path {\n\t\t\t\treturn Ok(try await r.handler(req))\n\t\t\t}\n\t\t}\n\t\tErr(Error.NotFound)\n\t}\n} end impl Router\n\nimpl Iterator for Segments {\n\tfunc next(mut self) -> Option[ref(self) Str] { None }\n}\n\n@system\nfunc first[T: Eq and Hash](xs: ref List[T]) -> ref(xs) T without (heap, crash) limit stack <= 4096 {\n\txs.get(0)\n}\n\n@link("z")\nextern "C" trust "сигнатуры сверены с zlib.h" {\n\tfunc crc32(crc: c.ulong, buf: ptr c.uchar, len: c.uint) -> c.ulong\n\tfunc deflateEnd(strm: mut ptr c.void) -> c.int uses trust\n}\n\nextern "C" func on_tick() {\n\tTICKS.add(1)\n}\n\nlet TICKS: Atomic[u64] = Atomic[u64].new(0)\nconst PAGE: usize = 4096\n\n@low\nfunc checksum(data: ref Bytes) -> u32 {\n\ttarget {\n\t\tcase x86.sse4_2 {\n\t\t\tvar crc: u32 = 0\n\t\t\tfor b in data { crc = x86.crc32_u8(crc, b) }\n\t\t\tcrc\n\t\t}\n\t\telse {\n\t\t\tvar crc: u32 = 0xFFFF_FFFF\n\t\t\tfor b in data {\n\t\t\t\tcrc = (crc >> 8) ^ TABLE[u8((crc ^ u32(b)) & 0xFF)]\n\t\t\t}\n\t\t\t~crc\n\t\t}\n\t}\n}\n\nfunc read_reg(p: ptr u32) -> u32 uses trust {\n\ttrust "адрес регистра задан профилем платы" { p.read() }\n}\n\nfunc with_fake_fs() -> Result[(), any Error] {\n\tprovide (fs = MemFs.new(), clock = FakeClock.new()) {\n\t\tlet f = try fs.open("a.txt")\n\t\touter: for line in f.lines() {\n\t\t\twhile true {\n\t\t\t\tif line.is_empty() { continue outer }\n\t\t\t\tbreak\n\t\t\t}\n\t\t}\n\t}\n\tOk(())\n}\n	OK	kw:@file	kw:(	NAME:strict	kw:)	TERM	kw:import	NAME:task	TERM	kw:import	NAME:c	TERM	ATTR:@layout	kw:(	NAME:c	kw:)	TERM	ATTR:@packed	kw:struct	NAME:Header	kw:{	ATTR:@offset	kw:(	INT:0	kw:)	NAME:magic	kw::	NAME:u32	TERM	ATTR:@offset	kw:(	INT:4	kw:)	NAME:len	kw::	NAME:u16	TERM	kw:pub	NAME:flags	kw::	NAME:u16	kw:=	INT:0	TERM	kw:}	TERM	kw:struct	NAME:Segments	kw:[	kw:life	NAME:s	kw:]	kw:{	NAME:rest	kw::	kw:ref	kw:(	NAME:s	kw:)	NAME:Str	TERM	kw:}	TERM	kw:struct	NAME:Router	kw:[	kw:uses	NAME:E	kw:]	kw:{	NAME:routes	kw::	NAME:List	kw:[	NAME:Route	kw:[	kw:uses	NAME:E	kw:]	kw:]	TERM	kw:}	TERM	kw:type	NAME:Handler	kw:[	kw:uses	NAME:E	kw:]	kw:=	kw:any	kw:func	kw:(	NAME:Request	kw:)	kw:->	NAME:Response	kw:uses	NAME:E	TERM	kw:interface	NAME:Shape	kw::	NAME:Display	kw:{	kw:func	NAME:area	kw:(	kw:self	kw:)	kw:->	NAME:f64	TERM	kw:func	NAME:name	kw:(	kw:self	kw:)	kw:->	NAME:Str	kw:{	STRING:"фигура"	kw:}	TERM	kw:}	TERM	kw:impl	kw:[	kw:uses	NAME:E	kw:]	NAME:Router	kw:[	kw:uses	NAME:E	kw:]	kw:{	kw:pub	kw:func	NAME:add	kw:(	kw:mut	kw:self	kw:,	NAME:path	kw::	NAME:Str	kw:,	kw:take	NAME:h	kw::	NAME:Handler	kw:[	kw:uses	NAME:E	kw:]	kw:)	kw:uses	NAME:heap	kw:{	kw:self	kw:.	NAME:routes	kw:.	NAME:push	kw:(	NAME:Route	kw:(	NAME:path	kw::	NAME:path	kw:,	NAME:handler	kw::	NAME:h	kw:)	kw:)	TERM	kw:}	TERM	kw:pub	kw:func	NAME:serve	kw:(	kw:self	kw:,	NAME:req	kw::	NAME:Request	kw:)	kw:->	NAME:Result	kw:[	NAME:Response	kw:,	NAME:Error	kw:]	kw:uses	kw:(	NAME:E	kw:,	NAME:suspend	kw:)	kw:{	kw:for	NAME:r	kw:in	kw:self	kw:.	NAME:routes	kw:{	kw:if	NAME:r	kw:.	NAME:path	kw:==	NAME:req	kw:.	NAME:path	kw:{	kw:return	NAME:Ok	kw:(	kw:try	kw:await	NAME:r	kw:.	NAME:handler	kw:(	NAME:req	kw:)	kw:)	TERM	kw:}	TERM	kw:}	TERM	NAME:Err	kw:(	NAME:Error	kw:.	NAME:NotFound	kw:)	TERM	kw:}	TERM	kw:}	kw:end	kw:impl	NAME:Router	TERM	kw:impl	NAME:Iterator	kw:for	NAME:Segments	kw:{	kw:func	NAME:next	kw:(	kw:mut	kw:self	kw:)	kw:->	NAME:Option	kw:[	kw:ref	kw:(	kw:self	kw:)	NAME:Str	kw:]	kw:{	NAME:None	kw:}	TERM	kw:}	TERM	kw:@system	kw:func	NAME:first	kw:[	NAME:T	kw::	NAME:Eq	kw:and	NAME:Hash	kw:]	kw:(	NAME:xs	kw::	kw:ref	NAME:List	kw:[	NAME:T	kw:]	kw:)	kw:->	kw:ref	kw:(	NAME:xs	kw:)	NAME:T	kw:without	kw:(	NAME:heap	kw:,	NAME:crash	kw:)	kw:limit	NAME:stack	kw:<=	INT:4096	kw:{	NAME:xs	kw:.	NAME:get	kw:(	INT:0	kw:)	TERM	kw:}	TERM	ATTR:@link	kw:(	STRING:"z"	kw:)	TERM	kw:extern	STRING:"C"	kw:trust	STRING:"сигнатуры сверены с zlib.h"	kw:{	kw:func	NAME:crc32	kw:(	NAME:crc	kw::	NAME:c	kw:.	NAME:ulong	kw:,	NAME:buf	kw::	kw:ptr	NAME:c	kw:.	NAME:uchar	kw:,	NAME:len	kw::	NAME:c	kw:.	NAME:uint	kw:)	kw:->	NAME:c	kw:.	NAME:ulong	TERM	kw:func	NAME:deflateEnd	kw:(	NAME:strm	kw::	kw:mut	kw:ptr	NAME:c	kw:.	NAME:void	kw:)	kw:->	NAME:c	kw:.	NAME:int	kw:uses	kw:trust	TERM	kw:}	TERM	kw:extern	STRING:"C"	kw:func	NAME:on_tick	kw:(	kw:)	kw:{	NAME:TICKS	kw:.	NAME:add	kw:(	INT:1	kw:)	TERM	kw:}	TERM	kw:let	NAME:TICKS	kw::	NAME:Atomic	kw:[	NAME:u64	kw:]	kw:=	NAME:Atomic	kw:[	NAME:u64	kw:]	kw:.	NAME:new	kw:(	INT:0	kw:)	TERM	kw:const	NAME:PAGE	kw::	NAME:usize	kw:=	INT:4096	TERM	kw:@low	kw:func	NAME:checksum	kw:(	NAME:data	kw::	kw:ref	NAME:Bytes	kw:)	kw:->	NAME:u32	kw:{	kw:target	kw:{	kw:case	NAME:x86	kw:.	NAME:sse4_2	kw:{	kw:var	NAME:crc	kw::	NAME:u32	kw:=	INT:0	TERM	kw:for	NAME:b	kw:in	NAME:data	kw:{	NAME:crc	kw:=	NAME:x86	kw:.	NAME:crc32_u8	kw:(	NAME:crc	kw:,	NAME:b	kw:)	kw:}	TERM	NAME:crc	TERM	kw:}	TERM	kw:else	kw:{	kw:var	NAME:crc	kw::	NAME:u32	kw:=	INT:0xFFFF_FFFF	TERM	kw:for	NAME:b	kw:in	NAME:data	kw:{	NAME:crc	kw:=	kw:(	NAME:crc	kw:>>	INT:8	kw:)	kw:^	NAME:TABLE	kw:[	NAME:u8	kw:(	kw:(	NAME:crc	kw:^	NAME:u32	kw:(	NAME:b	kw:)	kw:)	kw:&	INT:0xFF	kw:)	kw:]	TERM	kw:}	TERM	kw:~	NAME:crc	TERM	kw:}	TERM	kw:}	TERM	kw:}	TERM	kw:func	NAME:read_reg	kw:(	NAME:p	kw::	kw:ptr	NAME:u32	kw:)	kw:->	NAME:u32	kw:uses	kw:trust	kw:{	kw:trust	STRING:"адрес регистра задан профилем платы"	kw:{	NAME:p	kw:.	NAME:read	kw:(	kw:)	kw:}	TERM	kw:}	TERM	kw:func	NAME:with_fake_fs	kw:(	kw:)	kw:->	NAME:Result	kw:[	kw:(	kw:)	kw:,	kw:any	NAME:Error	kw:]	kw:{	kw:provide	kw:(	NAME:fs	kw:=	NAME:MemFs	kw:.	NAME:new	kw:(	kw:)	kw:,	NAME:clock	kw:=	NAME:FakeClock	kw:.	NAME:new	kw:(	kw:)	kw:)	kw:{	kw:let	NAME:f	kw:=	kw:try	NAME:fs	kw:.	NAME:open	kw:(	STRING:"a.txt"	kw:)	TERM	NAME:outer	kw::	kw:for	NAME:line	kw:in	NAME:f	kw:.	NAME:lines	kw:(	kw:)	kw:{	kw:while	kw:true	kw:{	kw:if	NAME:line	kw:.	NAME:is_empty	kw:(	kw:)	kw:{	kw:continue	NAME:outer	kw:}	TERM	kw:break	TERM	kw:}	TERM	kw:}	TERM	kw:}	TERM	NAME:Ok	kw:(	kw:(	kw:)	kw:)	TERM	kw:}	TERM
+sample:03-скрипт.nx	1	// Скрипт уровня @high: инструкции верхнего уровня и операторы.\nimport ui\n\nlet names = ["Аня", "Борис", "Вера"]\nvar total = 0\nfor i in 0..<names.len() {\n\ttotal += i * 2\n}\nlet shown = names.map(func(n) { "привет, $n" })\nprint("итого ${total + 1} из ${names.len()}")\n\nlet big = 1_000_000\nlet ratio = 2.5e-3\nlet mask = (0b1010 | 0o17) & 0xFF\nlet ok = not (total == 0) and (big > 10 or ratio < 1.0)\nlet sign = if total >= 0 { 1 } else if total == -1 { 0 } else { -1 }\nlet pair = (1, "один")\nlet (num, word) = pair\nlet text = """\n\tмногострочный текст с \\$ и ${word}\n\t"""\nlet ch = '\\n'\nlet r = parse("12") catch err { 0 }\nlet v = try await fetch(url)\nlet w = await fetch(url) catch { default() }\nlet s = a + b * c - d % 2\nlet t = a & mask == 0\nlet u = -x * y\nlet z = x + f() catch { 0 }\nlet q = try f() + try g()\nx.field[0].call(mut buf, 1)\nnames[0] = "Яна"; total -= 1\nloop {\n\tif total > 3 { break }\n\ttotal += 1\n} end loop\n@prototype { experimental() }\nlet kind = match take pair {\n\tcase (0, _) { "ноль" }\n\tcase (n, "один"), (n, "раз") { "один" }\n\tcase _ { "другое" }\n}\nlet long = call(\n\tfirst,\n\tsecond,\n)\n	OK	kw:import	NAME:ui	TERM	kw:let	NAME:names	kw:=	kw:[	STRING:"Аня"	kw:,	STRING:"Борис"	kw:,	STRING:"Вера"	kw:]	TERM	kw:var	NAME:total	kw:=	INT:0	TERM	kw:for	NAME:i	kw:in	INT:0	kw:..<	NAME:names	kw:.	NAME:len	kw:(	kw:)	kw:{	NAME:total	kw:+=	NAME:i	kw:*	INT:2	TERM	kw:}	TERM	kw:let	NAME:shown	kw:=	NAME:names	kw:.	NAME:map	kw:(	kw:func	kw:(	NAME:n	kw:)	kw:{	STRING:"привет, $n"	kw:}	kw:)	TERM	NAME:print	kw:(	STRING:"итого ${total + 1} из ${names.len()}"	kw:)	TERM	kw:let	NAME:big	kw:=	INT:1_000_000	TERM	kw:let	NAME:ratio	kw:=	FLOAT:2.5e-3	TERM	kw:let	NAME:mask	kw:=	kw:(	INT:0b1010	kw:|	INT:0o17	kw:)	kw:&	INT:0xFF	TERM	kw:let	NAME:ok	kw:=	kw:not	kw:(	NAME:total	kw:==	INT:0	kw:)	kw:and	kw:(	NAME:big	kw:>	INT:10	kw:or	NAME:ratio	kw:<	FLOAT:1.0	kw:)	TERM	kw:let	NAME:sign	kw:=	kw:if	NAME:total	kw:>=	INT:0	kw:{	INT:1	kw:}	kw:else	kw:if	NAME:total	kw:==	kw:-	INT:1	kw:{	INT:0	kw:}	kw:else	kw:{	kw:-	INT:1	kw:}	TERM	kw:let	NAME:pair	kw:=	kw:(	INT:1	kw:,	STRING:"один"	kw:)	TERM	kw:let	kw:(	NAME:num	kw:,	NAME:word	kw:)	kw:=	NAME:pair	TERM	kw:let	NAME:text	kw:=	STRING:"""\n\tмногострочный текст с \\$ и ${word}\n\t"""	TERM	kw:let	NAME:ch	kw:=	CHAR:'\\n'	TERM	kw:let	NAME:r	kw:=	NAME:parse	kw:(	STRING:"12"	kw:)	kw:catch	NAME:err	kw:{	INT:0	kw:}	TERM	kw:let	NAME:v	kw:=	kw:try	kw:await	NAME:fetch	kw:(	NAME:url	kw:)	TERM	kw:let	NAME:w	kw:=	kw:await	NAME:fetch	kw:(	NAME:url	kw:)	kw:catch	kw:{	NAME:default	kw:(	kw:)	kw:}	TERM	kw:let	NAME:s	kw:=	NAME:a	kw:+	NAME:b	kw:*	NAME:c	kw:-	NAME:d	kw:%	INT:2	TERM	kw:let	NAME:t	kw:=	NAME:a	kw:&	NAME:mask	kw:==	INT:0	TERM	kw:let	NAME:u	kw:=	kw:-	NAME:x	kw:*	NAME:y	TERM	kw:let	NAME:z	kw:=	NAME:x	kw:+	NAME:f	kw:(	kw:)	kw:catch	kw:{	INT:0	kw:}	TERM	kw:let	NAME:q	kw:=	kw:try	NAME:f	kw:(	kw:)	kw:+	kw:try	NAME:g	kw:(	kw:)	TERM	NAME:x	kw:.	NAME:field	kw:[	INT:0	kw:]	kw:.	NAME:call	kw:(	kw:mut	NAME:buf	kw:,	INT:1	kw:)	TERM	NAME:names	kw:[	INT:0	kw:]	kw:=	STRING:"Яна"	TERM	NAME:total	kw:-=	INT:1	TERM	kw:loop	kw:{	kw:if	NAME:total	kw:>	INT:3	kw:{	kw:break	kw:}	TERM	NAME:total	kw:+=	INT:1	TERM	kw:}	kw:end	kw:loop	TERM	kw:@prototype	kw:{	NAME:experimental	kw:(	kw:)	kw:}	TERM	kw:let	NAME:kind	kw:=	kw:match	kw:take	NAME:pair	kw:{	kw:case	kw:(	INT:0	kw:,	kw:_	kw:)	kw:{	STRING:"ноль"	kw:}	TERM	kw:case	kw:(	NAME:n	kw:,	STRING:"один"	kw:)	kw:,	kw:(	NAME:n	kw:,	STRING:"раз"	kw:)	kw:{	STRING:"один"	kw:}	TERM	kw:case	kw:_	kw:{	STRING:"другое"	kw:}	TERM	kw:}	TERM	kw:let	NAME:long	kw:=	NAME:call	kw:(	NAME:first	kw:,	NAME:second	kw:,	kw:)	TERM
