@@ -1,4 +1,5 @@
 // Nulix — формальная грамматика. Принята 15 ноября 2026.
+// Изменена 16 ноября 2026: слово test в метке после end (правила end_name и end_loop).
 // Запись: a b — подряд; a | b — выбор; a? — необязательно; a* — ноль и больше; a+ — один и больше;
 // "слово" — лексема как написана; ЗАГЛАВНЫЕ имена — лексемы из лексического раздела.
 // TERM — конец инструкции: его ставит лексер в конце строки или знак ";".
@@ -32,7 +33,7 @@ func_decl: func_sig block end_name?
 extern_func: "extern" STRING func_sig block end_name?
 func_sig: "func" NAME generics? "(" params? ")" sig_tail?
 sig_tail: reqs | "->" closed_type reqs? | "->" open_type
-end_name: "end" NAME
+end_name: "end" (NAME | "test")             // после end слово test — всегда ключевое, поэтому названо отдельно
 
 generics: "[" generic_param ("," generic_param)* ","? "]"
 generic_param: NAME (":" bound)? | "uses" NAME ("without" req_set)? | "life" NAME
@@ -106,7 +107,7 @@ while_stmt: label? "while" expr block end_loop?
 loop_stmt: label? "loop" block end_loop?
 label: NAME ":"
 for_target: NAME | "_" | tuple_pattern                                    // [П] _ и кортеж
-end_loop: "end" ("for" | "while" | "loop" | NAME)                         // [П] end while, end loop
+end_loop: "end" ("for" | "while" | "loop" | NAME | "test")                // [П] end while, end loop
 
 // ───────── Выражения ─────────
 // Приоритеты — частичный порядок [П]: and и or не смешиваются; сравнения не выстраиваются в цепочку;

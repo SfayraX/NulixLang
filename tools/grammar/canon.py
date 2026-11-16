@@ -429,7 +429,7 @@ class Canon:
 
     def r_end_loop(self, t):
         x = t.children[1]
-        return node("end", x.value) if named(x, "NAME") else node("end-kw", x.value)
+        return node("end-kw", x.value) if is_sym(x, "for", "while", "loop") else node("end", x.value)
 
     # ───────── выражения ─────────
     def r_expr(self, t):

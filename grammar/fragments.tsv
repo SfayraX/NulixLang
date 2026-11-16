@@ -236,3 +236,5 @@ target(lm3s6965)	file_header	@file(production, target(lm3s6965))
 + f(a, life(b))	expr	f(a, life(b))
 + Table[K, life a]	type	Table[K, life a]
 + Table[life self]	type	Table[life self]
++ func test() { } end test	decl	func test() { } end test
++ test: loop { } end test	stmt	test: loop { } end test

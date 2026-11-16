@@ -1,9 +1,9 @@
 """Случайные тексты по грамматике и их порча — для сверки разборщика на Rust с проверочным.
 
-Тексты выводятся из правил grammar/nulix.lark случайным образом; часть потом портится одной
-правкой (лишняя, пропущенная или переставленная лексема, перевод строки не на месте). Каждый текст
-разбирает проверочный разборщик, и его исход с записью дерева попадает в файл. Разборщик на Rust
-обязан выдать то же самое на каждом тексте.
+Тексты выводятся из правил grammar/nulix.lark: сначала по одному тексту на каждое раскрытие каждого
+правила, потом случайные. Часть текстов портится одной правкой (лишняя, пропущенная или переставленная
+лексема, перевод строки не на месте). Каждый текст разбирает проверочный разборщик, и его исход с
+записью дерева попадает в файл. Разборщик на Rust обязан выдать то же самое на каждом тексте.
 
 Запуск: python3 tools/grammar/fuzz.py grammar <сколько текстов> <зерно> > файл.tsv
 """
@@ -58,7 +58,10 @@ used_rules = set()
 def derive(name, state, out):
     """Случайный вывод из правила: пока есть запас — любое раскрытие, потом самое короткое."""
     rules = by_origin[name]
-    if state["budget"] > 0:
+    fresh = [r for r in rules if r not in used_rules]
+    if state["budget"] > 0 and fresh and rnd.random() < 0.5:
+        rule = rnd.choice(fresh)          # чаще брать раскрытия, которых ещё не было в принятых текстах
+    elif state["budget"] > 0:
         rule = rnd.choice(rules)
     else:
         low = min(rule_cost(r) for r in rules)
@@ -70,6 +73,40 @@ def derive(name, state, out):
             out.append(token(str(s.name)))
         else:
             derive(str(s.name), state, out)
+
+
+# как добраться до каждого правила от целого файла: правило-родитель и место в нём
+via, queue = {}, ["file"]
+while queue:
+    name = queue.pop(0)
+    for rule in by_origin[name]:
+        for index, s in enumerate(rule.expansion):
+            child = str(s.name)
+            if not s.is_term and child != "file" and child not in via:
+                via[child] = (rule, index)
+                queue.append(child)
+
+
+def derive_through(target, state, out):
+    """Вывод целого файла, в котором обязательно применено раскрытие target."""
+    chain, name = [(target, None)], str(target.origin.name)
+    while name != "file":
+        rule, index = via[name]
+        chain.insert(0, (rule, index))
+        name = str(rule.origin.name)
+
+    def walk(depth):
+        rule, index = chain[depth]
+        state["rules"].append(rule)
+        for i, s in enumerate(rule.expansion):
+            if s.is_term:
+                out.append(token(str(s.name)))
+            elif i == index:
+                walk(depth + 1)
+            else:
+                derive(str(s.name), state, out)
+
+    walk(0)
 
 
 def token(kind):
@@ -160,6 +197,27 @@ def add(case_id, start, text, rules):
     lines.append("\t".join([case_id, start, esc(text), status] + ([esc(tree)] if tree is not None else [])))
 
 
+def spoil(case_id, start, tokens, eof_term, copies):
+    for k in range(copies):
+        add(f"{case_id}:m{k}", start, render(mutate(tokens), eof_term), [])
+    if rnd.random() < 0.5:
+        add(f"{case_id}:nl", start, break_line(render(tokens, eof_term)), [])
+
+
+# 1. по одному тексту на каждое раскрытие каждого правила
+all_rules = [r for rules in by_origin.values() for r in rules]
+number = 0
+for target in all_rules:
+    number += 1
+    state = {"budget": rnd.choice([0, 0, 4, 12]), "rules": []}
+    tokens = []
+    derive_through(target, state, tokens)
+    add(f"rule:{number}", "file", render(tokens, True), state["rules"])
+    if tokens:
+        spoil(f"rule:{number}", "file", tokens, True, 1)
+targeted = len(lines)
+
+# 2. случайные тексты
 number = 0
 while len(lines) < COUNT:
     number += 1
@@ -167,21 +225,19 @@ while len(lines) < COUNT:
     state = {"budget": rnd.choice([3, 8, 20, 40, 80, 160]), "rules": []}
     tokens = []
     derive(start, state, tokens)
-    if not tokens or len(tokens) > 400:
+    if len(tokens) > 400 or not tokens:
         continue
     eof_term = start in ("file", "stmts")
     add(f"gen:{number}", start, render(tokens, eof_term), state["rules"])
-    for k in range(2):
-        add(f"gen:{number}:m{k}", start, render(mutate(tokens), eof_term), [])
-    if rnd.random() < 0.5:
-        add(f"gen:{number}:nl", start, break_line(render(tokens, eof_term)), [])
+    spoil(f"gen:{number}", start, tokens, eof_term, 2)
 
-all_rules = [r for rules in by_origin.values() for r in rules]
 print(f"# случайные тексты по грамматике: зерно {SEED}; пример <TAB> стартовое правило <TAB> текст "
       f"<TAB> OK или ERROR <TAB> запись дерева")
-for line in lines[:COUNT]:
+kept = lines[:COUNT]
+for line in kept:
     print(line)
-print(f"текстов {len(lines[:COUNT])}: принято {stats['OK']}, отвергнуто {stats['ERROR']}; "
+print(f"текстов {len(kept)}: принято {sum(1 for x in kept if x.split(chr(9))[3] == 'OK')}, "
+      f"отвергнуто {sum(1 for x in kept if x.split(chr(9))[3] == 'ERROR')}; "
       f"раскрытий правил в принятых текстах {len(used_rules)} из {len(all_rules)}", file=sys.stderr)
 missing = sorted({str(r.origin.name) for r in all_rules if r not in used_rules and not str(r.origin.name).startswith("__")})
 if missing:

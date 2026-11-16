@@ -226,6 +226,8 @@ frag:224	0	import m.{a, life as b}	OK	kw:import	NAME:m	kw:.	kw:{	NAME:a	kw:,	NAM
 frag:225	0	f(a, life(b))	OK	NAME:f	kw:(	NAME:a	kw:,	NAME:life	kw:(	NAME:b	kw:)	kw:)
 frag:226	0	Table[K, life a]	OK	NAME:Table	kw:[	NAME:K	kw:,	kw:life	NAME:a	kw:]
 frag:227	0	Table[life self]	OK	NAME:Table	kw:[	kw:life	kw:self	kw:]
+frag:228	0	func test() { } end test	OK	kw:func	NAME:test	kw:(	kw:)	kw:{	kw:}	kw:end	kw:test
+frag:229	0	test: loop { } end test	OK	NAME:test	kw::	kw:loop	kw:{	kw:}	kw:end	kw:test
 neg:1	0	a and b or c	OK	NAME:a	kw:and	NAME:b	kw:or	NAME:c
 neg:2	0	a or b and c	OK	NAME:a	kw:or	NAME:b	kw:and	NAME:c
 neg:3	0	a < b < c	OK	NAME:a	kw:<	NAME:b	kw:<	NAME:c

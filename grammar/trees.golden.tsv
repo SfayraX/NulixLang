@@ -226,6 +226,8 @@ frag:224	import_decl	import m.{a, life as b}	OK	(import (path m) (group (item a)
 frag:225	expr	f(a, life(b))	OK	(call (name f) (name a) (call (name life) (name b)))
 frag:226	type	Table[K, life a]	OK	(t-path Table (targs (t-path K) (life a)))
 frag:227	type	Table[life self]	OK	(t-path Table (targs (life-self)))
+frag:228	decl	func test() { } end test	OK	(decl (func (sig test (params)) (block) (end test)))
+frag:229	stmt	test: loop { } end test	OK	(loop (label test) (block) (end test))
 neg:1	expr	a and b or c	ERROR
 neg:2	expr	a or b and c	ERROR
 neg:3	expr	a < b < c	ERROR
