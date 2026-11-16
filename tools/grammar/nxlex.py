@@ -1,6 +1,6 @@
-"""Лексер черновика грамматики Nulix для проверки разборщиком Lark (LALR).
+"""Проверочный лексер Nulix для разборщика Lark (LALR).
 
-Правила, которых нет в спецификации и которые здесь приняты как предложения, помечены [П].
+Пометка [П] — правило появилось вместе с грамматикой: в тексте спецификации до 15 ноября 2026 его не было.
 """
 import re
 from lark import Token
@@ -8,6 +8,11 @@ from lark.lexer import Lexer
 
 EMBEDDED = []          # выражения из "${...}" — проверяются отдельно стартовым правилом expr
 EOF_TERM = True        # ставить ли конец инструкции в конце текста (для разбора целого файла)
+
+# Правила, с которых проверка умеет начинать разбор; с тех же правил начинает и разборщик на Rust
+STARTS = ["file", "decl", "stmt", "stmts", "expr", "type", "pattern", "func_sig", "generics", "generic_args",
+          "reqs", "match_item", "import_decl", "attr", "sig_tail", "param", "field", "variant", "bound",
+          "file_header", "member"]
 
 # После этих ключевых слов конец строки завершает инструкцию (правило Go, перенесённое на Nulix) [П]
 ENDER_WORDS = {"return", "break", "continue", "self", "true", "false", "any", "trust"}
@@ -117,8 +122,10 @@ class NxLexer(Lexer):
             while j < n and ident_cont(text[j]):
                 j += 1
             nxt = text[k:j]
-            if word == "life":      # после "[" или "," и перед именем или "("
-                return prev is not None and prev.value in ("[", ",") and (after == "(" or bool(nxt))
+            if word == "life":      # в квадратных скобках, после "[" или ",", перед именем, self или "("
+                inside = bool(stack) and stack[-1] == "["
+                is_name = ident_start(after) and (nxt not in self.words or nxt in CONTEXTUAL or nxt == "self")
+                return inside and prev is not None and prev.value in ("[", ",") and (after == "(" or is_name)
             if word == "end":       # только сразу после "}"
                 return prev is not None and prev.type == self.lit["}"]
             if word == "test":      # перед строкой и в метке `end test`
@@ -224,8 +231,9 @@ class NxLexer(Lexer):
                     emit(self.lit["_"], word)
                 elif word not in self.words:
                     emit("NAME", word)
-                elif prev is not None and prev.type in (self.lit["."], self.lit["func"]):
-                    emit("NAME", word)           # после точки и после func любое слово — имя
+                elif prev is not None and (prev.type == self.lit["."] or (
+                        prev.type == self.lit["func"] and not (len(out) > 1 and out[-2].type == self.lit["end"]))):
+                    emit("NAME", word)           # после точки и после func любое слово — имя; метка end func не в счёт
                 elif word in CONTEXTUAL:
                     emit(self.lit[word] if contextual_keyword(word, prev, k) else "NAME", word)
                 else:

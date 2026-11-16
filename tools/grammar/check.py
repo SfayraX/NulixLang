@@ -1,4 +1,4 @@
-"""Проверка черновика грамматики Nulix.
+"""Проверка грамматики Nulix.
 
 1. Строит LALR(1)-разборщик в строгом режиме: любой конфликт — ошибка.
 2. Разбирает фрагменты из спецификации (grammar/fragments.tsv).
@@ -13,9 +13,7 @@ import nxlex
 
 G = sys.argv[1]
 VERBOSE = "-v" in sys.argv
-STARTS = ["file", "decl", "stmt", "stmts", "expr", "type", "pattern", "func_sig", "generics", "generic_args",
-          "reqs", "match_item", "import_decl", "attr", "sig_tail", "param", "field", "variant", "bound",
-          "file_header", "member"]
+STARTS = nxlex.STARTS
 grammar = open(os.path.join(G, "nulix.lark"), encoding="utf-8").read()
 try:
     parser = Lark(grammar, parser="lalr", lexer=nxlex.NxLexer, start=STARTS, strict=True)
@@ -35,9 +33,13 @@ def parse(text, start):
     nxlex.EOF_TERM = start in ("file", "stmts")
     try:
         parser.parse(text, start=start)
-        for line, sub in list(nxlex.EMBEDDED):
+        queue = list(nxlex.EMBEDDED)          # выражения из ${…}, в том числе вложенные
+        while queue:
+            line, sub = queue.pop(0)
+            nxlex.EMBEDDED.clear()
             nxlex.EOF_TERM = False
             parser.parse(sub, start="expr")
+            queue += nxlex.EMBEDDED
     except (LarkError, nxlex.NxLexError) as e:
         return " ".join(str(e).split())[:200]
     return None

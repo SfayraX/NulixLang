@@ -231,3 +231,8 @@ target(lm3s6965)	file_header	@file(production, target(lm3s6965))
 + interface I { func f(self) } end I	decl	interface I { func f(self) } end I
 + let test = 1; test(x)	stmts	let test = 1; test(x)
 + func end() { } end end	decl	func end() { } end end
++ func() { } end func catch { 0 }	expr	func() { } end func catch { 0 }
++ import m.{a, life as b}	import_decl	import m.{a, life as b}
++ f(a, life(b))	expr	f(a, life(b))
++ Table[K, life a]	type	Table[K, life a]
++ Table[life self]	type	Table[life self]

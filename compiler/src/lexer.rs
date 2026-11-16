@@ -110,11 +110,11 @@ pub fn lex(source: &str, eof_term: bool) -> Result<Vec<Token>, LexError> {
     Ok(lexer.out)
 }
 
-fn ident_start(c: char) -> bool {
+pub(crate) fn ident_start(c: char) -> bool {
     c == '_' || c.is_alphabetic()
 }
 
-fn ident_cont(c: char) -> bool {
+pub(crate) fn ident_cont(c: char) -> bool {
     c == '_' || c.is_alphanumeric()
 }
 
@@ -259,12 +259,21 @@ impl Lexer {
         let next_word = self.slice(k, j);
         let prev = self.out.last();
         if word == "life" {
-            // после "[" или "," и перед именем или "("
+            // в квадратных скобках, после "[" или ",", перед именем, self или "("
+            let inside = match self.stack.last() {
+                Some(&top) => top == '[',
+                None => false,
+            };
+            let is_name = ident_start(after)
+                && (!KEYWORDS.contains(&next_word.as_str())
+                    || CONTEXTUAL.contains(&next_word.as_str())
+                    || next_word == "self");
             return match prev {
                 Some(p) => {
-                    p.kind == TokenKind::Punct
+                    inside
+                        && p.kind == TokenKind::Punct
                         && (p.text == "[" || p.text == ",")
-                        && (after == '(' || !next_word.is_empty())
+                        && (after == '(' || is_name)
                 }
                 None => false,
             };
@@ -564,10 +573,15 @@ impl Lexer {
                 while k < n && (self.text[k] == ' ' || self.text[k] == '\t') {
                     k += 1;
                 }
+                // метка `end func` не в счёт: после неё слово читается как обычно
+                let count = self.out.len();
+                let after_end = count > 1
+                    && self.out[count - 2].kind == TokenKind::Keyword
+                    && self.out[count - 2].text == "end";
                 let after_dot_or_func = match self.out.last() {
                     Some(p) => {
                         (p.kind == TokenKind::Punct && p.text == ".")
-                            || (p.kind == TokenKind::Keyword && p.text == "func")
+                            || (p.kind == TokenKind::Keyword && p.text == "func" && !after_end)
                     }
                     None => false,
                 };
