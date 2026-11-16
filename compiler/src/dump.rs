@@ -669,11 +669,21 @@ pub fn expr(e: &Expr) -> String {
         ExprKind::Paren(inner) => pair("paren", &expr(inner)),
         ExprKind::Tuple(list) => exprs("tuple", list),
         ExprKind::List(list) => exprs("list", list),
-        ExprKind::Binary(op, left, right) => {
-            let mut n = Node::new(op.text());
-            n.add(&expr(left));
-            n.add(&expr(right));
-            n.done()
+        ExprKind::Binary(first, rest) => {
+            // запись вложенная, как у проверочного разборщика: (op2 (op1 A B) C)
+            let mut text = String::new();
+            for (op, _) in rest.iter().rev() {
+                text.push('(');
+                text.push_str(op.text());
+                text.push(' ');
+            }
+            text.push_str(&expr(first));
+            for (_, operand) in rest {
+                text.push(' ');
+                text.push_str(&expr(operand));
+                text.push(')');
+            }
+            text
         }
         ExprKind::Unary(op, inner) => {
             let head = match op {
@@ -701,32 +711,39 @@ pub fn expr(e: &Expr) -> String {
             add_end(&mut n, c.has_end);
             n.done()
         }
-        ExprKind::Field(base, name) => {
-            let mut n = Node::new(".");
-            n.add(&expr(base));
-            n.add(name);
-            n.done()
-        }
-        ExprKind::Call(callee, args) => {
-            let mut n = Node::new("call");
-            n.add(&expr(callee));
-            for a in args {
-                n.add(&arg(a));
+        ExprKind::Postfix(base, ops) => {
+            // запись вложенная: (index (call (. A имя) аргументы) индексы)
+            let mut text = String::new();
+            for op in ops.iter().rev() {
+                text.push_str(match op {
+                    PostfixOp::Field(_) => "(. ",
+                    PostfixOp::Call(_) => "(call ",
+                    PostfixOp::Index(_) => "(index ",
+                });
             }
-            n.done()
-        }
-        ExprKind::Index(base, args) => {
-            let mut n = Node::new("index");
-            n.add(&expr(base));
-            for a in args {
-                match a {
-                    IndexArg::Expr(e) => n.add(&expr(e)),
-                    IndexArg::Any(None) => n.add("(t-any)"),
-                    IndexArg::Any(Some(p)) => n.add(&pair("t-any", &path_type(p))),
-                    IndexArg::Uses(items) => n.add(&req_items("uses", items)),
+            text.push_str(&expr(base));
+            for op in ops {
+                match op {
+                    PostfixOp::Field(name) => {
+                        text.push(' ');
+                        text.push_str(name);
+                    }
+                    PostfixOp::Call(args) => {
+                        for a in args {
+                            text.push(' ');
+                            text.push_str(&arg(a));
+                        }
+                    }
+                    PostfixOp::Index(args) => {
+                        for a in args {
+                            text.push(' ');
+                            text.push_str(&index_arg(a));
+                        }
+                    }
                 }
+                text.push(')');
             }
-            n.done()
+            text
         }
         ExprKind::If(i) => if_expr(i),
         ExprKind::Match(m) => {
@@ -830,17 +847,37 @@ fn arg(a: &Arg) -> String {
     }
 }
 
-fn if_expr(i: &IfExpr) -> String {
-    let mut n = Node::new("if");
-    n.add(&expr(&i.cond));
-    n.add(&block(&i.then));
-    match &i.otherwise {
-        None => {}
-        Some(ElseBranch::Block(b)) => n.add(&pair("else", &block(b))),
-        Some(ElseBranch::If(inner)) => n.add(&pair("else", &if_expr(inner))),
+fn index_arg(a: &IndexArg) -> String {
+    match a {
+        IndexArg::Expr(e) => expr(e),
+        IndexArg::Any(None) => String::from("(t-any)"),
+        IndexArg::Any(Some(p)) => pair("t-any", &path_type(p)),
+        IndexArg::Uses(items) => req_items("uses", items),
     }
-    add_end(&mut n, i.has_end);
-    n.done()
+}
+
+/// Запись вложенная: `(if C1 B1 (else (if C2 B2 (else B3))) end)`.
+fn if_expr(i: &IfExpr) -> String {
+    let mut text = String::new();
+    for (k, branch) in i.branches.iter().enumerate() {
+        text.push_str(if k == 0 { "(if " } else { " (else (if " });
+        text.push_str(&expr(&branch.cond));
+        text.push(' ');
+        text.push_str(&block(&branch.then));
+    }
+    if let Some(b) = &i.otherwise {
+        text.push_str(" (else ");
+        text.push_str(&block(b));
+        text.push(')');
+    }
+    for _ in 1..i.branches.len() {
+        text.push_str("))");
+    }
+    if i.has_end {
+        text.push_str(" end");
+    }
+    text.push(')');
+    text
 }
 
 pub fn match_item(item: &MatchItem) -> String {

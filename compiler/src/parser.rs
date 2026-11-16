@@ -6,6 +6,9 @@
 //!
 //! Разборщик останавливается на первой ошибке. Совпадение меток `end` с именами он не проверяет:
 //! этого нет в грамматике, проверка появится на следующем шаге.
+//!
+//! Вложенность ограничена (`MAX_DEPTH`), поэтому глубина рекурсии разборщика тоже ограничена.
+//! Стека по умолчанию для неё может не хватить: вызывать разбор нужно через `stack::run`.
 
 use crate::ast::*;
 use crate::dump;
@@ -19,6 +22,11 @@ pub struct ParseError {
 }
 
 type Res<T> = Result<T, ParseError>;
+
+/// Предел вложенности. Уровень добавляют открытая скобка, приставка перед выражением или типом,
+/// тип результата после `->`, выражение-заголовок (`if`, `match`, `while`, `for`, `provide`,
+/// `limit`, условие в `case`) и выражение в `${…}`.
+pub const MAX_DEPTH: u32 = 256;
 
 const LEVELS: &[&str] = &["@high", "@system", "@low", "@naked"];
 const STRICTNESS: &[&str] = &["@prototype", "@develop", "@production", "@strict"];
@@ -78,13 +86,28 @@ pub fn parse_rule(rule: &str, source: &str) -> Res<String> {
 struct Parser {
     toks: Vec<Token>,
     pos: usize,
+    /// Текущая вложенность, см. `MAX_DEPTH`.
+    depth: u32,
+    /// Вложенность, с которой начался разбор: ноль, а у выражения из `${…}` — уровень внутри строки.
+    base: u32,
 }
 
-fn binary(op: BinOp, left: Expr, right: Expr) -> Expr {
-    let line = left.line;
+/// Цепочка операций: первый операнд и пары «операция, операнд». Без пар — сам операнд.
+fn chain(first: Expr, rest: Vec<(BinOp, Expr)>) -> Expr {
+    if rest.is_empty() {
+        return first;
+    }
+    let line = first.line;
     Expr {
-        kind: ExprKind::Binary(op, Box::new(left), Box::new(right)),
+        kind: ExprKind::Binary(Box::new(first), rest),
         line,
+    }
+}
+
+fn too_deep(line: u32) -> ParseError {
+    ParseError {
+        line,
+        message: format!("вложенность глубже {} уровней", MAX_DEPTH),
     }
 }
 
@@ -92,7 +115,7 @@ fn binary(op: BinOp, left: Expr, right: Expr) -> Expr {
 /// только цепочка из имени, скобок, литерала или блока с точками, вызовами и индексами.
 fn is_postfix_form(e: &Expr) -> bool {
     match &e.kind {
-        ExprKind::Binary(_, _, _)
+        ExprKind::Binary(_, _)
         | ExprKind::Unary(_, _)
         | ExprKind::Is(_, _)
         | ExprKind::Catch(_) => false,
@@ -100,9 +123,12 @@ fn is_postfix_form(e: &Expr) -> bool {
     }
 }
 
-/// Выражение из подстановки `${…}`; `line` — строка, на которой подстановка стоит.
-fn embedded_expr(text: &str, line: u32) -> Res<Expr> {
+/// Выражение из подстановки `${…}`; `line` — строка, на которой подстановка стоит,
+/// `depth` — вложенность, с которой выражение начинается.
+fn embedded_expr(text: &str, line: u32, depth: u32) -> Res<Expr> {
     let mut parser = Parser::new(text, false, line)?;
+    parser.depth = depth;
+    parser.base = depth;
     let value = parser.expr()?;
     parser.finish()?;
     Ok(value)
@@ -110,7 +136,8 @@ fn embedded_expr(text: &str, line: u32) -> Res<Expr> {
 
 /// Подстановки внутри строкового литерала: `$имя` и `${выражение}`.
 /// Запись экранирования и парность скобок в `${…}` уже проверил лексер.
-fn string_subs(raw: &str, first_line: u32) -> Res<Vec<StrSub>> {
+/// Выражение в `${…}` — на уровень глубже строки, `depth` — вложенность самой строки.
+fn string_subs(raw: &str, first_line: u32, depth: u32) -> Res<Vec<StrSub>> {
     let chars: Vec<char> = raw.chars().collect();
     let quote = if raw.starts_with("\"\"\"") { 3 } else { 1 };
     let end = chars.len() - quote;
@@ -129,18 +156,21 @@ fn string_subs(raw: &str, first_line: u32) -> Res<Vec<StrSub>> {
                 i += 2;
             }
         } else if c == '$' && i + 1 < end && chars[i + 1] == '{' {
-            let mut depth = 1;
+            let mut braces = 1;
             let mut j = i + 2;
-            while j < end && depth > 0 {
+            while j < end && braces > 0 {
                 if chars[j] == '{' {
-                    depth += 1;
+                    braces += 1;
                 } else if chars[j] == '}' {
-                    depth -= 1;
+                    braces -= 1;
                 }
                 j += 1;
             }
             let inner: String = chars[i + 2..j - 1].iter().collect();
-            subs.push(StrSub::Expr(embedded_expr(&inner, line)?));
+            if depth >= MAX_DEPTH {
+                return Err(too_deep(line));
+            }
+            subs.push(StrSub::Expr(embedded_expr(&inner, line, depth + 1)?));
             for k in i..j {
                 if chars[k] == '\n' {
                     line += 1;
@@ -181,7 +211,12 @@ impl Parser {
                 t.line += first_line - 1;
             }
         }
-        Ok(Parser { toks, pos: 0 })
+        Ok(Parser {
+            toks,
+            pos: 0,
+            depth: 0,
+            base: 0,
+        })
     }
 
     // ───────── лексемы ─────────
@@ -228,13 +263,44 @@ impl Parser {
         self.at_level() || self.at_strictness()
     }
 
+    /// Съедает лексему, если она здесь стоит. Закрывающая скобка уменьшает вложенность;
+    /// открывающие скобки читает `open`, а не эта функция.
     fn eat(&mut self, text: &str) -> bool {
         if self.at(text) {
             self.pos += 1;
+            if text == ")" || text == "]" || text == "}" {
+                self.shallower();
+            }
             true
         } else {
             false
         }
+    }
+
+    /// Открывающая скобка, если она здесь стоит: вложенность растёт на уровень.
+    fn open(&mut self, text: &str) -> Res<bool> {
+        if !self.at(text) {
+            return Ok(false);
+        }
+        self.deeper()?;
+        self.pos += 1;
+        Ok(true)
+    }
+
+    /// Вход на уровень глубже; за пределом вложенности — ошибка.
+    fn deeper(&mut self) -> Res<()> {
+        if self.depth >= MAX_DEPTH {
+            return Err(too_deep(self.line()));
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
+    /// Выход с уровня. Каждому выходу отвечает вход, поэтому ниже начала счётчик не уходит;
+    /// отладочная сборка это проверяет.
+    fn shallower(&mut self) {
+        debug_assert!(self.depth > self.base, "выход с уровня без входа");
+        self.depth = self.depth.saturating_sub(1);
     }
 
     fn eat_term(&mut self) -> bool {
@@ -282,7 +348,12 @@ impl Parser {
     }
 
     fn expect(&mut self, text: &str) -> Res<()> {
-        if self.eat(text) {
+        let found = if text == "(" || text == "[" || text == "{" {
+            self.open(text)?
+        } else {
+            self.eat(text)
+        };
+        if found {
             Ok(())
         } else {
             self.fail(&format!("«{}»", text))
@@ -305,8 +376,14 @@ impl Parser {
         }
     }
 
+    /// Текст должен кончиться. К этому месту счётчик вложенности обязан вернуться к началу;
+    /// отладочная сборка это проверяет.
     fn finish(&self) -> Res<()> {
         if self.at_end() {
+            debug_assert_eq!(
+                self.depth, self.base,
+                "счётчик вложенности не вернулся к началу"
+            );
             Ok(())
         } else {
             self.fail("конец текста")
@@ -329,7 +406,7 @@ impl Parser {
         }
         let line = self.line();
         let raw = self.take();
-        let subs = string_subs(&raw, line)?;
+        let subs = string_subs(&raw, line, self.depth)?;
         Ok(StrLit { raw, subs, line })
     }
 
@@ -529,7 +606,7 @@ impl Parser {
             return self.fail("пометка");
         }
         let name = self.take();
-        if self.eat("(") {
+        if self.open("(")? {
             let args = self.args()?;
             self.expect(")")?;
             return Ok(Attr::Custom(name, Some(args)));
@@ -649,7 +726,9 @@ impl Parser {
     /// они уже отнесены к той функции.
     fn sig_tail(&mut self) -> Res<(Option<Type>, Option<Reqs>)> {
         if self.eat("->") {
+            self.deeper()?;
             let (ret, open) = self.ty_open()?;
+            self.shallower();
             if open || !self.at_reqs() {
                 return Ok((Some(ret), None));
             }
@@ -774,7 +853,7 @@ impl Parser {
 
     fn req_set(&mut self) -> Res<Vec<ReqItem>> {
         let mut list = Vec::new();
-        if !self.eat("(") {
+        if !self.open("(")? {
             list.push(self.req_item()?);
             return Ok(list);
         }
@@ -800,7 +879,7 @@ impl Parser {
 
     fn limit_set(&mut self) -> Res<Vec<LimitItem>> {
         let mut list = Vec::new();
-        if !self.eat("(") {
+        if !self.open("(")? {
             list.push(self.limit_item()?);
             return Ok(list);
         }
@@ -824,7 +903,9 @@ impl Parser {
         } else {
             return self.fail("«<=» или «>=»");
         };
+        self.deeper()?;
         let value = self.arith()?;
+        self.shallower();
         Ok(LimitItem {
             name,
             at_most,
@@ -917,7 +998,7 @@ impl Parser {
         let indirect = self.eat("indirect");
         let name = self.name()?;
         let mut fields = VariantFields::None;
-        if self.eat("(") {
+        if self.open("(")? {
             if self.at_name() && self.is(1, ":") {
                 let mut list = Vec::new();
                 list.push(self.named_field()?);
@@ -1111,7 +1192,7 @@ impl Parser {
     /// Тип и признак «открытый»: кончается типом функции, не взятым в скобки.
     fn ty_open(&mut self) -> Res<(Type, bool)> {
         let line = self.line();
-        if !self.eat("(") {
+        if !self.open("(")? {
             return self.prefixed_type();
         }
         if self.eat(")") {
@@ -1153,15 +1234,19 @@ impl Parser {
         if self.at("ref") || (self.at("mut") && self.is(1, "ref")) {
             let mutable = self.eat("mut");
             self.pos += 1;
+            self.deeper()?;
             let origin = self.origin()?;
             let (inner, open) = self.prefixed_type()?;
+            self.shallower();
             let kind = TypeKind::Ref(mutable, origin, Box::new(inner));
             return Ok((Type { kind, line }, open));
         }
         if self.at("ptr") || (self.at("mut") && self.is(1, "ptr")) {
             let mutable = self.eat("mut");
             self.pos += 1;
+            self.deeper()?;
             let (inner, open) = self.prefixed_type()?;
+            self.shallower();
             let kind = TypeKind::Ptr(mutable, Box::new(inner));
             return Ok((Type { kind, line }, open));
         }
@@ -1193,7 +1278,7 @@ impl Parser {
 
     /// Источник ссылки в скобках сразу после `ref`.
     fn origin(&mut self) -> Res<Option<Origin>> {
-        if !self.eat("(") {
+        if !self.open("(")? {
             return Ok(None);
         }
         let origin = if self.eat("self") {
@@ -1242,7 +1327,7 @@ impl Parser {
                 return Ok(GenericArg::Life(LifeSource::SelfValue));
             }
             let mut names = Vec::new();
-            if self.eat("(") {
+            if self.open("(")? {
                 names.push(self.name()?);
                 while self.eat(",") {
                     names.push(self.name()?);
@@ -1409,7 +1494,9 @@ impl Parser {
             };
             self.expect("in")?;
             let mode = self.mode();
+            self.deeper()?;
             let iter = self.expr()?;
+            self.shallower();
             let body = self.block()?;
             let end = self.end_loop()?;
             let kind = StmtKind::For(ForStmt {
@@ -1423,7 +1510,9 @@ impl Parser {
             return Ok(Stmt { kind, line });
         }
         if self.eat("while") {
+            self.deeper()?;
             let cond = self.expr()?;
+            self.shallower();
             let body = self.block()?;
             let end = self.end_loop()?;
             let kind = StmtKind::While(WhileStmt {
@@ -1500,25 +1589,26 @@ impl Parser {
 
     /// `and` и `or` не смешиваются: цепочка состоит из одного и того же слова.
     fn expr(&mut self) -> Res<Expr> {
-        let mut left = self.not_expr()?;
+        let first = self.not_expr()?;
+        let mut rest = Vec::new();
         if self.at("or") {
             while self.eat("or") {
-                let right = self.not_expr()?;
-                left = binary(BinOp::Or, left, right);
+                rest.push((BinOp::Or, self.not_expr()?));
             }
         } else if self.at("and") {
             while self.eat("and") {
-                let right = self.not_expr()?;
-                left = binary(BinOp::And, left, right);
+                rest.push((BinOp::And, self.not_expr()?));
             }
         }
-        Ok(left)
+        Ok(chain(first, rest))
     }
 
     fn not_expr(&mut self) -> Res<Expr> {
         let line = self.line();
         if self.eat("not") {
+            self.deeper()?;
             let inner = self.not_expr()?;
+            self.shallower();
             let kind = ExprKind::Unary(UnOp::Not, Box::new(inner));
             return Ok(Expr { kind, line });
         }
@@ -1539,7 +1629,7 @@ impl Parser {
         for &(text, op) in OPS {
             if self.eat(text) {
                 let right = self.operand()?;
-                return Ok(binary(op, left, right));
+                return Ok(chain(left, vec![(op, right)]));
             }
         }
         if self.eat("is") {
@@ -1572,7 +1662,7 @@ impl Parser {
             };
             self.pos += 1;
             let right = self.unary()?;
-            return Ok(binary(op, first, right));
+            return Ok(chain(first, vec![(op, right)]));
         }
         let left = self.arith_from(first)?;
         if self.at("..<") || self.at("..=") {
@@ -1583,18 +1673,17 @@ impl Parser {
             };
             self.pos += 1;
             let right = self.arith()?;
-            return Ok(binary(op, left, right));
+            return Ok(chain(left, vec![(op, right)]));
         }
         Ok(left)
     }
 
     fn bit_chain(&mut self, first: Expr, sign: &str, op: BinOp) -> Res<Expr> {
-        let mut left = first;
+        let mut rest = Vec::new();
         while self.eat(sign) {
-            let right = self.unary()?;
-            left = binary(op, left, right);
+            rest.push((op, self.unary()?));
         }
-        Ok(left)
+        Ok(chain(first, rest))
     }
 
     fn arith(&mut self) -> Res<Expr> {
@@ -1604,7 +1693,8 @@ impl Parser {
 
     /// Сложение и вычитание; `first` — уже разобранная первая часть.
     fn arith_from(&mut self, first: Expr) -> Res<Expr> {
-        let mut left = self.term_from(first)?;
+        let head = self.term_from(first)?;
+        let mut rest = Vec::new();
         loop {
             let op = if self.at("+") {
                 BinOp::Add
@@ -1615,15 +1705,14 @@ impl Parser {
             };
             self.pos += 1;
             let next = self.unary()?;
-            let right = self.term_from(next)?;
-            left = binary(op, left, right);
+            rest.push((op, self.term_from(next)?));
         }
-        Ok(left)
+        Ok(chain(head, rest))
     }
 
     /// Умножение, деление и остаток; `first` — уже разобранная первая часть.
     fn term_from(&mut self, first: Expr) -> Res<Expr> {
-        let mut left = first;
+        let mut rest = Vec::new();
         loop {
             let op = if self.at("*") {
                 BinOp::Mul
@@ -1635,10 +1724,9 @@ impl Parser {
                 break;
             };
             self.pos += 1;
-            let right = self.unary()?;
-            left = binary(op, left, right);
+            rest.push((op, self.unary()?));
         }
-        Ok(left)
+        Ok(chain(first, rest))
     }
 
     /// Операнд и необязательный `catch` после него.
@@ -1678,25 +1766,25 @@ impl Parser {
             return self.postfix();
         };
         self.pos += 1;
+        self.deeper()?;
         let inner = self.prefix()?;
+        self.shallower();
         let kind = ExprKind::Unary(op, Box::new(inner));
         Ok(Expr { kind, line })
     }
 
+    /// Основа и всё, что к ней приписано: `.имя`, вызовы и индексы — одним списком.
     fn postfix(&mut self) -> Res<Expr> {
-        let mut value = self.primary()?;
+        let base = self.primary()?;
+        let mut ops = Vec::new();
         loop {
-            let line = value.line;
             if self.eat(".") {
-                let name = self.name()?;
-                let kind = ExprKind::Field(Box::new(value), name);
-                value = Expr { kind, line };
-            } else if self.eat("(") {
+                ops.push(PostfixOp::Field(self.name()?));
+            } else if self.open("(")? {
                 let args = self.args()?;
                 self.expect(")")?;
-                let kind = ExprKind::Call(Box::new(value), args);
-                value = Expr { kind, line };
-            } else if self.eat("[") {
+                ops.push(PostfixOp::Call(args));
+            } else if self.open("[")? {
                 let mut args = Vec::new();
                 args.push(self.index_arg()?);
                 while self.eat(",") {
@@ -1706,12 +1794,17 @@ impl Parser {
                     args.push(self.index_arg()?);
                 }
                 self.expect("]")?;
-                let kind = ExprKind::Index(Box::new(value), args);
-                value = Expr { kind, line };
+                ops.push(PostfixOp::Index(args));
             } else {
-                return Ok(value);
+                break;
             }
         }
+        if ops.is_empty() {
+            return Ok(base);
+        }
+        let line = base.line;
+        let kind = ExprKind::Postfix(Box::new(base), ops);
+        Ok(Expr { kind, line })
     }
 
     /// Аргументы вызова до закрывающей скобки; сама скобка остаётся.
@@ -1773,9 +1866,9 @@ impl Parser {
                     ExprKind::Bool(true)
                 } else if self.eat("false") {
                     ExprKind::Bool(false)
-                } else if self.eat("(") {
+                } else if self.open("(")? {
                     self.after_paren()?
-                } else if self.eat("[") {
+                } else if self.open("[")? {
                     let mut items = Vec::new();
                     if !self.at("]") {
                         items.push(self.expr()?);
@@ -1789,9 +1882,9 @@ impl Parser {
                     self.expect("]")?;
                     ExprKind::List(items)
                 } else if self.at("if") {
-                    let mut chain = self.if_chain()?;
-                    chain.has_end = self.end_kw("if")?;
-                    ExprKind::If(Box::new(chain))
+                    let mut whole = self.if_chain()?;
+                    whole.has_end = self.end_kw("if")?;
+                    ExprKind::If(Box::new(whole))
                 } else if self.at("match") {
                     ExprKind::Match(Box::new(self.match_expr()?))
                 } else if self.at("func") {
@@ -1835,22 +1928,28 @@ impl Parser {
         Ok(ExprKind::Tuple(items))
     }
 
-    /// `if условие блок`, дальше `else блок` или `else if …`. Метку `end if` читает вызывающий.
+    /// `if условие блок`, дальше сколько угодно `else if …` и необязательный `else блок`.
+    /// Метку `end if` читает вызывающий.
     fn if_chain(&mut self) -> Res<IfExpr> {
-        self.expect("if")?;
-        let cond = self.expr()?;
-        let then = self.block()?;
+        let mut branches = Vec::new();
         let mut otherwise = None;
-        if self.eat("else") {
-            if self.at("if") {
-                otherwise = Some(ElseBranch::If(Box::new(self.if_chain()?)));
-            } else {
-                otherwise = Some(ElseBranch::Block(self.block()?));
+        loop {
+            self.expect("if")?;
+            self.deeper()?;
+            let cond = self.expr()?;
+            self.shallower();
+            let then = self.block()?;
+            branches.push(IfBranch { cond, then });
+            if !self.eat("else") {
+                break;
+            }
+            if !self.at("if") {
+                otherwise = Some(self.block()?);
+                break;
             }
         }
         Ok(IfExpr {
-            cond,
-            then,
+            branches,
             otherwise,
             has_end: false,
         })
@@ -1859,7 +1958,9 @@ impl Parser {
     fn match_expr(&mut self) -> Res<MatchExpr> {
         self.expect("match")?;
         let mode = self.mode();
+        self.deeper()?;
         let value = self.expr()?;
+        self.shallower();
         self.expect("{")?;
         let mut items = Vec::new();
         while self.at("case") || self.at("else") {
@@ -1888,11 +1989,12 @@ impl Parser {
         while self.eat(",") {
             patterns.push(self.pattern()?);
         }
-        let guard = if self.eat("if") {
-            Some(self.expr()?)
-        } else {
-            None
-        };
+        let mut guard = None;
+        if self.eat("if") {
+            self.deeper()?;
+            guard = Some(self.expr()?);
+            self.shallower();
+        }
         let body = self.block()?;
         let has_end = self.end_kw("case")?;
         Ok(MatchItem::Case(MatchCase {
@@ -1935,7 +2037,7 @@ impl Parser {
     fn provide_expr(&mut self) -> Res<ProvideExpr> {
         self.expect("provide")?;
         let mut items = Vec::new();
-        if self.eat("(") {
+        if self.open("(")? {
             items.push(self.provide_item()?);
             while self.eat(",") {
                 if self.at(")") {
@@ -1959,7 +2061,9 @@ impl Parser {
     fn provide_item(&mut self) -> Res<ProvideItem> {
         let name = self.name()?;
         self.expect("=")?;
+        self.deeper()?;
         let value = self.expr()?;
+        self.shallower();
         Ok(ProvideItem { name, value })
     }
 
@@ -2016,7 +2120,7 @@ impl Parser {
             TokenKind::Str => PatternKind::Str(self.string()?),
             TokenKind::Name => {
                 let path = self.dotted()?;
-                if self.eat("(") {
+                if self.open("(")? {
                     let mut args = Vec::new();
                     if !self.at(")") {
                         args.push(self.pattern_arg()?);

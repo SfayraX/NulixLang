@@ -2,6 +2,9 @@
 //!
 //! Дерево повторяет принятую грамматику (`grammar/nulix.lark`) и ничего не проверяет:
 //! имена, типы и совпадение меток `end` сверяются на следующих шагах.
+//!
+//! Цепочки — `a + b + c`, `x.f().g()`, `if … else if …` — хранятся списками, а не вложением,
+//! поэтому глубина дерева ограничена пределом вложенности, какой бы длины ни была цепочка.
 
 /// Целый файл: заголовок, импорты, объявления и инструкции верхнего уровня.
 #[derive(Debug, Clone, PartialEq)]
@@ -500,14 +503,15 @@ pub enum ExprKind {
     Paren(Box<Expr>),
     Tuple(Vec<Expr>),
     List(Vec<Expr>),
-    Binary(BinOp, Box<Expr>, Box<Expr>),
+    /// Цепочка двухместных операций одного семейства, слева направо:
+    /// первый операнд и пары «операция, следующий операнд».
+    Binary(Box<Expr>, Vec<(BinOp, Expr)>),
     Unary(UnOp, Box<Expr>),
     /// `значение is образец`.
     Is(Box<Expr>, Pattern),
     Catch(Box<CatchExpr>),
-    Field(Box<Expr>, String),
-    Call(Box<Expr>, Vec<Arg>),
-    Index(Box<Expr>, Vec<IndexArg>),
+    /// Основа и приписанное к ней по порядку: `.имя`, вызовы и индексы.
+    Postfix(Box<Expr>, Vec<PostfixOp>),
     If(Box<IfExpr>),
     Match(Box<MatchExpr>),
     Closure(Box<Closure>),
@@ -556,18 +560,26 @@ pub enum IndexArg {
     Uses(Vec<ReqItem>),
 }
 
+/// Одно звено после основы выражения: поле, вызов или индекс.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PostfixOp {
+    Field(String),
+    Call(Vec<Arg>),
+    Index(Vec<IndexArg>),
+}
+
+/// `if … else if … else …`: ветви с условиями по порядку и необязательный блок `else`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfExpr {
-    pub cond: Expr,
-    pub then: Block,
-    pub otherwise: Option<ElseBranch>,
+    pub branches: Vec<IfBranch>,
+    pub otherwise: Option<Block>,
     pub has_end: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ElseBranch {
-    Block(Block),
-    If(Box<IfExpr>),
+pub struct IfBranch {
+    pub cond: Expr,
+    pub then: Block,
 }
 
 #[derive(Debug, Clone, PartialEq)]

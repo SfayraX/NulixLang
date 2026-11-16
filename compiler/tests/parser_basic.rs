@@ -25,9 +25,9 @@ fn lines_are_recorded() {
         _ => panic!("ожидался return со значением"),
     };
     match &sum.kind {
-        ExprKind::Binary(_, left, right) => {
-            assert_eq!(left.line, 5);
-            assert_eq!(right.line, 6);
+        ExprKind::Binary(first, rest) => {
+            assert_eq!(first.line, 5);
+            assert_eq!(rest[0].1.line, 6);
         }
         _ => panic!("ожидалась сумма"),
     }

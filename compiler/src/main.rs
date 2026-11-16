@@ -7,6 +7,10 @@ use nulixc::lexer::lex;
 use nulixc::parser::parse_file;
 
 fn main() {
+    nulixc::stack::run(work);
+}
+
+fn work() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 3 || (args[1] != "lex" && args[1] != "parse") {
         eprintln!("использование: nulixc lex <файл>");

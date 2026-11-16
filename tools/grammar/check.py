@@ -9,6 +9,7 @@
 import glob, os, re, sys
 from lark import Lark
 from lark.exceptions import LarkError
+from canon import Reference
 import nxlex
 
 G = sys.argv[1]
@@ -27,22 +28,12 @@ print(f"грамматика собрана без конфликтов: пра�
       f"знаков и пометок {len(lits) - len(words)}")
 
 
+reference = Reference(G)       # тот же разборщик, с которым сверяется разборщик компилятора
+
+
 def parse(text, start):
-    """Возвращает None при успехе или текст ошибки."""
-    nxlex.EMBEDDED.clear()
-    nxlex.EOF_TERM = start in ("file", "stmts")
-    try:
-        parser.parse(text, start=start)
-        queue = list(nxlex.EMBEDDED)          # выражения из ${…}, в том числе вложенные
-        while queue:
-            line, sub = queue.pop(0)
-            nxlex.EMBEDDED.clear()
-            nxlex.EOF_TERM = False
-            parser.parse(sub, start="expr")
-            queue += nxlex.EMBEDDED
-    except (LarkError, nxlex.NxLexError) as e:
-        return " ".join(str(e).split())[:200]
-    return None
+    """Возвращает None при успехе или текст ошибки. Подстановки ${…} и правило вложенности учтены."""
+    return reference.error(start, text)
 
 
 # ── 2. фрагменты ──

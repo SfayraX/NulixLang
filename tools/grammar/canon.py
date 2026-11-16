@@ -5,15 +5,23 @@ Lark, и разборщик на Rust (compiler/src/dump.rs). Сверка за�
 что разборщик на Rust разбирает текст так же, как грамматика grammar/nulix.lark.
 
 В запись не входят скобки вокруг типа, завершающие запятые и концы инструкций.
+
+Здесь же правило вложенности (check_depth): его нельзя выразить в грамматике, поэтому
+проверочный разборщик применяет его к готовому дереву.
 """
 import os
+import sys
 
 from lark import Lark, Token, Tree
 from lark.exceptions import LarkError
 
 import nxlex
 
+sys.setrecursionlimit(max(sys.getrecursionlimit(), 60000))    # запись дерева идёт рекурсией по вложенности
+
 NAMED = {"NAME", "INT", "FLOAT", "STRING", "CHAR", "ATTR", "TERM"}
+MAX_DEPTH = 256             # предел вложенности; то же число — в compiler/src/parser.rs
+OPENERS, CLOSERS = ("(", "[", "{"), (")", "]", "}")
 
 
 def node(head, *parts):
@@ -65,6 +73,58 @@ def string_subs(raw):
         else:
             i += 1
     return subs
+
+
+class TooDeep(LarkError):
+    def __str__(self):
+        return f"вложенность глубже {MAX_DEPTH} уровней"
+
+
+def deeper_parts(t):
+    """Номера частей правила, которые лежат на уровень глубже и без скобок."""
+    kids, name = t.children, t.data
+    if name in ("not_expr", "prefix") and len(kids) == 2:
+        return {1}                                           # операнд приставки
+    if name in ("simple_type", "open_type") and is_sym(kids[0], "ref", "ptr", "mut"):
+        return set(range(2 if is_sym(kids[0], "mut") else 1, len(kids)))     # всё после ref и ptr
+    if name in ("sig_tail", "fn_tail") and is_sym(kids[0], "->"):
+        return {1}                                           # тип результата
+    if name in ("provide_item", "limit_item"):
+        return {2}                                           # значение после знака
+    if name in ("if_chain", "match_expr", "match_item", "for_stmt", "while_stmt"):
+        return {i for i, c in enumerate(kids) if isinstance(c, Tree) and c.data == "expr"}   # заголовок
+    return set()
+
+
+def check_depth(root, parse_expr):
+    """Правило вложенности: ни одна часть текста не лежит глубже MAX_DEPTH уровней.
+
+    Уровень добавляют открытая скобка, приставка перед выражением или типом, тип результата после
+    `->`, выражение-заголовок (`if`, `match`, `while`, `for`, `provide`, `limit`, условие в `case`)
+    и выражение в `${…}`. Обход без рекурсии: дерево слишком глубокого текста тоже глубокое.
+    """
+    todo = [(root, 0)]
+    while todo:
+        t, depth = todo.pop()
+        deeper, opened = deeper_parts(t), 0
+        for i, c in enumerate(t.children):
+            if isinstance(c, Tree):
+                inner = depth + opened + (1 if i in deeper else 0)
+                if inner > MAX_DEPTH:
+                    raise TooDeep()
+                todo.append((c, inner))
+            elif c.type == "STRING":
+                for kind, text in string_subs(c.value):
+                    if kind == "expr":
+                        if depth + opened + 1 > MAX_DEPTH:
+                            raise TooDeep()
+                        todo.append((parse_expr(text), depth + opened + 1))
+            elif c.type not in NAMED and c.value in OPENERS:
+                opened += 1
+                if depth + opened > MAX_DEPTH:
+                    raise TooDeep()
+            elif c.type not in NAMED and c.value in CLOSERS:
+                opened -= 1
 
 
 class Canon:
@@ -637,12 +697,26 @@ class Reference:
         nxlex.EOF_TERM = start in ("file", "stmts")
         return self.parser.parse(text, start=start)
 
+    def tree(self, start, text):
+        """Дерево принятого текста; иначе исключение. Подстановки ${…} во всех строках разбираются тоже."""
+        tree = self.parse(start, text)
+        check_depth(tree, lambda sub: self.parse("expr", sub))
+        return tree
+
     def run(self, start, text):
-        """("OK", запись дерева) или ("ERROR", None). Подстановки ${…} во всех строках разбираются тоже."""
+        """("OK", запись дерева) или ("ERROR", None)."""
         try:
-            return "OK", self.canon.go(self.parse(start, text))
+            return "OK", self.canon.go(self.tree(start, text))
         except (LarkError, nxlex.NxLexError):
             return "ERROR", None
+
+    def error(self, start, text):
+        """None, если текст принят, иначе сообщение об ошибке."""
+        try:
+            self.canon.go(self.tree(start, text))
+        except (LarkError, nxlex.NxLexError) as e:
+            return " ".join(str(e).split())[:200]
+        return None
 
 
 def esc(text):
