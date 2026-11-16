@@ -121,8 +121,8 @@ class NxLexer(Lexer):
                 return prev is not None and prev.value in ("[", ",") and (after == "(" or bool(nxt))
             if word == "end":       # только сразу после "}"
                 return prev is not None and prev.type == self.lit["}"]
-            if word == "test":      # только перед строкой
-                return after == '"'
+            if word == "test":      # перед строкой и в метке `end test`
+                return after == '"' or (prev is not None and prev.type == self.lit["end"])
             if word == "type":      # только перед именем
                 return bool(nxt) and ident_start(after) and (nxt not in self.words or nxt in CONTEXTUAL)
             return nxt == "self"    # discard — только перед self

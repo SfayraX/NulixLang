@@ -277,7 +277,12 @@ impl Lexer {
             };
         }
         if word == "test" {
-            return after == '"'; // только перед строкой
+            // перед строкой и в метке `end test`
+            let after_end = match prev {
+                Some(p) => p.kind == TokenKind::Keyword && p.text == "end",
+                None => false,
+            };
+            return after == '"' || after_end;
         }
         if word == "type" {
             // только перед именем

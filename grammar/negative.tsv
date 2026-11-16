@@ -38,3 +38,6 @@ stmt	let limit = 5
 stmt	let target = 1
 stmts	let a = b\n..< c
 decl	func f() { } end
+decl	test "имя" { } end
+stmt	if a { } end for
+decl	func f() { } end test "x"
