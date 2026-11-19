@@ -1,0 +1,359 @@
+# эталонные деревья: пример <TAB> стартовое правило <TAB> текст <TAB> OK или ERROR <TAB> запись дерева
+frag:1	decl	func имя() { } end имя	OK	(decl (func (sig имя (params)) (block) (end имя)))
+frag:2	decl	impl Router { } end impl Router	OK	(decl (impl (t-path Router) (end-impl (tname Router))))
+frag:3	decl	impl Iterator for Segments { } end impl Iterator for Segments	OK	(decl (impl (t-path Iterator) (for (t-path Segments)) (end-impl (tname Iterator) (for (tname Segments)))))
+frag:4	stmt	for x in xs { } end for	OK	(for (bind x) (name xs) (block) (end-kw for))
+frag:5	stmt	if a { } end if	OK	(if (name a) (block) end)
+frag:6	stmt	match x { } end match	OK	(match (name x) end)
+frag:7	expr	x // до конца строки	OK	(name x)
+frag:8	expr	/* a /* вложенный */ b */ x	OK	(name x)
+frag:9	file	/// документация\nfunc f() { }	OK	(file (decl (func (sig f (params)) (block))))
+frag:10	stmt	let x: i64 = 0	OK	(let (bind x) (: (t-path i64)) (int 0))
+frag:11	decl	func имя(параметры) -> Результат { }	OK	(decl (func (sig имя (params (param параметры)) (-> (t-path Результат))) (block)))
+frag:12	func_sig	func max[T: Ord](a: T, b: T) -> T	OK	(sig max (generics (tparam T (bound (t-path Ord)))) (params (param a (: (t-path T))) (param b (: (t-path T)))) (-> (t-path T)))
+frag:13	type	Pair[i64, Str]	OK	(t-path Pair (targs (t-path i64) (t-path Str)))
+frag:14	expr	max[i64](a, b)	OK	(call (index (name max) (name i64)) (name a) (name b))
+frag:15	decl	type Имя = Тип	OK	(decl (type-alias Имя (t-path Тип)))
+frag:16	decl	type Handler[uses E] = any func(Request) -> Response uses E	OK	(decl (type-alias Handler (generics (rparam E)) (t-func (kind any) (params (fparam (t-path Request))) (-> (t-path Response)) (reqs (uses (req E))))))
+frag:17	decl	test "имя" { }	OK	(decl (test (str "имя") (block)))
+frag:18	variant	Num(i64)	OK	(variant Num (positional (t-path i64)))
+frag:19	variant	Some(T)	OK	(variant Some (positional (t-path T)))
+frag:20	decl	impl Интерфейс for Тип { }	OK	(decl (impl (t-path Интерфейс) (for (t-path Тип))))
+frag:21	decl	impl Тип { }	OK	(decl (impl (t-path Тип)))
+frag:22	decl	interface Error: Display { }	OK	(decl (interface Error (bound (t-path Display))))
+frag:23	generics	[T: Eq and Hash]	OK	(generics (tparam T (bound (t-path Eq) (t-path Hash))))
+frag:24	decl	impl Add for Vec2 { }	OK	(decl (impl (t-path Add) (for (t-path Vec2))))
+frag:25	decl	impl Eq for Cell {}	OK	(decl (impl (t-path Eq) (for (t-path Cell))))
+frag:26	decl	impl Copy for Vec2 {}	OK	(decl (impl (t-path Copy) (for (t-path Vec2))))
+frag:27	type	any Shape	OK	(t-any (t-path Shape))
+frag:28	type	any	OK	(t-any)
+frag:29	type	func()	OK	(t-func (params))
+frag:30	generics	[T]	OK	(generics (tparam T))
+frag:31	type	any func()	OK	(t-func (kind any) (params))
+frag:32	type	extern "C" func()	OK	(t-func (kind extern (str "C")) (params))
+frag:33	decl	impl Drop for T { func drop(mut self) }	OK	(decl (impl (t-path Drop) (for (t-path T)) (member (sig drop (params (self-param (mode mut)))))))
+frag:34	param	take self	OK	(self-param (mode take))
+frag:35	stmt	discard self	OK	(discard-self)
+frag:36	expr	"$x"	OK	(str "$x" (sub-name x))
+frag:37	func_sig	func show[uses E](self, mut out: TextOut[uses E]) uses E	OK	(sig show (generics (rparam E)) (params (self-param) (param (mode mut) out (: (t-path TextOut (targs (uses (req E))))))) (reqs (uses (req E))))
+frag:38	generics	[uses E without suspend]	OK	(generics (rparam E (without (req suspend))))
+frag:39	decl	impl[T] List[T] { }	OK	(decl (impl (generics (tparam T)) (t-path List (targs (t-path T)))))
+frag:40	decl	impl[uses E] Router[uses E] { }	OK	(decl (impl (generics (rparam E)) (t-path Router (targs (uses (req E))))))
+frag:41	decl	impl List[i32] { }	OK	(decl (impl (t-path List (targs (t-path i32)))))
+frag:42	expr	Rect(w: 2.0, h: 3.0)	OK	(call (name Rect) (named-arg w (float 2.0)) (named-arg h (float 3.0)))
+frag:43	expr	List[T].new()	OK	(call (. (index (name List) (name T)) new))
+frag:44	expr	Set[T].from(items)	OK	(call (. (index (name Set) (name T)) from) (name items))
+frag:45	expr	Array[u32, 256].filled(0)	OK	(call (. (index (name Array) (name u32) (int 256)) filled) (int 0))
+frag:46	field	gap: f32 = 0.0	OK	(field gap (t-path f32) (default (float 0.0)))
+frag:47	type	Array[T, N]	OK	(t-path Array (targs (t-path T) (t-path N)))
+frag:48	expr	[a, b, c]	OK	(list (name a) (name b) (name c))
+frag:49	expr	s.graphemes()	OK	(call (. (name s) graphemes))
+frag:50	stmt	if a { } else if b { }	OK	(if (name a) (block) (else (if (name b) (block))))
+frag:51	expr	match значение { case образец { } else { } }	OK	(match (name значение) (case (pats (p-path образец)) (block)) (case-else (block)))
+frag:52	match_item	case Bin(op, left, right) { }	OK	(case (pats (p-ctor (p-path Bin) (p-path op) (p-path left) (p-path right))) (block))
+frag:53	match_item	case '-', '−' { }	OK	(case (pats (p-char '-') (p-char '−')) (block))
+frag:54	match_item	case Div if b == 0 { }	OK	(case (pats (p-path Div)) (guard (== (name b) (int 0))) (block))
+frag:55	expr	значение is образец	OK	(is (name значение) (p-path образец))
+frag:56	stmt	if r is Ok(v) { }	OK	(if (is (name r) (p-ctor (p-path Ok) (p-path v))) (block))
+frag:57	stmt	for x in xs { }	OK	(for (bind x) (name xs) (block))
+frag:58	stmt	while условие { }	OK	(while (name условие) (block))
+frag:59	stmt	outer: for x in xs { }	OK	(for (label outer) (bind x) (name xs) (block))
+frag:60	stmt	break outer	OK	(break outer)
+frag:61	expr	0..<10	OK	(..< (int 0) (int 10))
+frag:62	expr	0..=10	OK	(..= (int 0) (int 10))
+frag:63	expr	f() catch { }	OK	(catch (call (name f)) (block))
+frag:64	expr	f() catch err { }	OK	(catch (call (name f)) (err err) (block))
+frag:65	stmt	assert условие	OK	(assert (name условие))
+frag:66	stmt	assert условие, "пояснение"	OK	(assert (name условие) (str "пояснение"))
+frag:67	expr	try await f()	OK	(try (await (call (name f))))
+frag:68	expr	func(p) { }	OK	(closure (params (param p)) (block))
+frag:69	expr	"$name"	OK	(str "$name" (sub-name name))
+frag:70	expr	"${выражение}"	OK	(str "${выражение}" (sub (name выражение)))
+frag:71	expr	"\\$"	OK	(str "\\$")
+frag:72	expr	0x1F	OK	(int 0x1F)
+frag:73	expr	0b1010	OK	(int 0b1010)
+frag:74	expr	0o17	OK	(int 0o17)
+frag:75	expr	"…"	OK	(str "…")
+frag:76	expr	"""…"""	OK	(str """…""")
+frag:77	expr	'a'	OK	(char 'a')
+frag:78	expr	u8(x)	OK	(call (name u8) (name x))
+frag:79	reqs	without crash	OK	(reqs (without (req crash)))
+frag:80	expr	sort(mut data)	OK	(call (name sort) (mut-arg (name data)))
+frag:81	stmt	for x in mut xs { }	OK	(for (bind x) (mode mut) (name xs) (block))
+frag:82	stmt	for x in take xs { }	OK	(for (bind x) (mode take) (name xs) (block))
+frag:83	expr	match x { }	OK	(match (name x))
+frag:84	expr	x is A	OK	(is (name x) (p-path A))
+frag:85	expr	match mut x { }	OK	(match (mode mut) (name x))
+frag:86	expr	match take x { }	OK	(match (mode take) (name x))
+frag:87	type	mut func()	OK	(t-func (kind mut) (params))
+frag:88	type	take func()	OK	(t-func (kind take) (params))
+frag:89	type	any func(Event) -> T	OK	(t-func (kind any) (params (fparam (t-path Event))) (-> (t-path T)))
+frag:90	param	take handler	OK	(param (mode take) handler)
+frag:91	type	mut func()	OK	(t-func (kind mut) (params))
+frag:92	type	take func()	OK	(t-func (kind take) (params))
+frag:93	expr	s.spawn	OK	(. (name s) spawn)
+frag:94	expr	task.race	OK	(. (name task) race)
+frag:95	expr	task.timeout	OK	(. (name task) timeout)
+frag:96	expr	task.shield	OK	(. (name task) shield)
+frag:97	expr	task.scope	OK	(. (name task) scope)
+frag:98	param	take f: take func()	OK	(param (mode take) f (: (t-func (kind take) (params))))
+frag:99	type	ref T	OK	(t-ref (t-path T))
+frag:100	type	mut ref T	OK	(t-mutref (t-path T))
+frag:101	sig_tail	-> ref(xs) T	OK	(sig-tail (-> (t-ref (origin xs) (t-path T))))
+frag:102	decl	struct Segments[life s] { }	OK	(decl (struct Segments (generics (lparam s))))
+frag:103	field	rest: ref(s) Str	OK	(field rest (t-ref (origin s) (t-path Str)))
+frag:104	sig_tail	-> Segments[life path]	OK	(sig-tail (-> (t-path Segments (targs (life path)))))
+frag:105	generic_args	[life (a, b)]	OK	(targs (life a b))
+frag:106	type	Shared[T]	OK	(t-path Shared (targs (t-path T)))
+frag:107	type	Weak[T]	OK	(t-path Weak (targs (t-path T)))
+frag:108	type	Atomic[T]	OK	(t-path Atomic (targs (t-path T)))
+frag:109	attr	@high	OK	(level @high)
+frag:110	attr	@system	OK	(level @system)
+frag:111	attr	@low	OK	(level @low)
+frag:112	attr	@naked	OK	(level @naked)
+frag:113	attr	@prototype	OK	(strictness @prototype)
+frag:114	attr	@develop	OK	(strictness @develop)
+frag:115	attr	@production	OK	(strictness @production)
+frag:116	attr	@strict	OK	(strictness @strict)
+frag:117	stmt	@low { }	OK	(level-block @low (block))
+frag:118	file_header	@file(production)	OK	(header (harg production))
+frag:119	attr	@gpu(vertex)	OK	(attr @gpu (args (name vertex)))
+frag:120	attr	@gpu(fragment)	OK	(attr @gpu (args (name fragment)))
+frag:121	attr	@gpu(compute)	OK	(attr @gpu (args (name compute)))
+frag:122	reqs	limit stack <= 4096	OK	(reqs (limit (limit-le stack (int 4096))))
+frag:123	type	func(T) -> U uses net	OK	(t-func (params (fparam (t-path T))) (-> (t-path U)) (reqs (uses (req net))))
+frag:124	reqs	uses (net, fs)	OK	(reqs (uses (req net) (req fs)))
+frag:125	reqs	without (heap, block, crash)	OK	(reqs (without (req heap) (req block) (req crash)))
+frag:126	type	()	OK	(t-unit)
+frag:127	generics	[T, U, uses E]	OK	(generics (tparam T) (tparam U) (rparam E))
+frag:128	decl	struct Router[uses E] { }	OK	(decl (struct Router (generics (rparam E))))
+frag:129	type	Router[uses fs]	OK	(t-path Router (targs (uses (req fs))))
+frag:130	type	func(Str) -> T uses E without suspend	OK	(t-func (params (fparam (t-path Str))) (-> (t-path T)) (reqs (uses (req E)) (without (req suspend))))
+frag:131	expr	target { case возможность { } else { } }	OK	(target (case (req возможность) (block)) (case-else (block)))
+frag:132	expr	x86.crc32_u8	OK	(. (name x86) crc32_u8)
+frag:133	expr	provide fs = disk { }	OK	(provide (pitem fs (name disk)) (block))
+frag:134	expr	provide (fs = disk, net = fake) { }	OK	(provide (pitem fs (name disk)) (pitem net (name fake)) (block))
+frag:135	expr	trust "обоснование" { }	OK	(trust (str "обоснование") (block))
+frag:136	reqs	uses trust	OK	(reqs (uses (req-trust)))
+frag:137	decl	extern "C" trust "обоснование" { }	OK	(decl (extern-block (str "C") (str "обоснование")))
+frag:138	attr	@link("z")	OK	(attr @link (args (str "z")))
+frag:139	type	c.int	OK	(t-path c int)
+frag:140	type	c.long	OK	(t-path c long)
+frag:141	type	c.size_t	OK	(t-path c size_t)
+frag:142	type	c.void	OK	(t-path c void)
+frag:143	decl	extern "C" func имя() { }	OK	(decl (extern-func (str "C") (sig имя (params)) (block)))
+frag:144	type	extern "C" func()	OK	(t-func (kind extern (str "C")) (params))
+frag:145	expr	c.CString(s)	OK	(call (. (name c) CString) (name s))
+frag:146	expr	Str.from_c(p)	OK	(call (. (name Str) from_c) (name p))
+frag:147	expr	Str.from_c_lossy(p)	OK	(call (. (name Str) from_c_lossy) (name p))
+frag:148	type	ptr T	OK	(t-ptr (t-path T))
+frag:149	type	mut ptr T	OK	(t-mutptr (t-path T))
+frag:150	expr	p.is_null()	OK	(call (. (name p) is_null))
+frag:151	expr	p.read()	OK	(call (. (name p) read))
+frag:152	expr	p.write()	OK	(call (. (name p) write))
+frag:153	expr	p.поле	OK	(. (name p) поле)
+frag:154	expr	p.cast[T]()	OK	(call (index (. (name p) cast) (name T)))
+frag:155	expr	size_of[T]()	OK	(call (index (name size_of) (name T)))
+frag:156	attr	@layout(c)	OK	(attr @layout (args (name c)))
+frag:157	attr	@align(N)	OK	(attr @align (args (name N)))
+frag:158	attr	@packed	OK	(attr @packed)
+frag:159	attr	@offset(N)	OK	(attr @offset (args (name N)))
+frag:160	attr	@section("имя")	OK	(attr @section (args (str "имя")))
+frag:161	import_decl	import net.tcp	OK	(import (path net tcp))
+frag:162	expr	tcp.connect	OK	(. (name tcp) connect)
+frag:163	import_decl	import text.json.{parse, Value}	OK	(import (path text json) (group (item parse) (item Value)))
+frag:164	import_decl	import task.{Signal}	OK	(import (path task) (group (item Signal)))
+frag:165	import_decl	import task	OK	(import (path task))
+frag:166	expr	Ordering.Relaxed	OK	(. (name Ordering) Relaxed)
+frag:167	decl	func main() { }	OK	(decl (func (sig main (params)) (block)))
+frag:168	expr	media.camera()	OK	(call (. (name media) camera))
+frag:169	type	func(M) -> View[Msg] uses heap	OK	(t-func (params (fparam (t-path M))) (-> (t-path View (targs (t-path Msg)))) (reqs (uses (req heap))))
+frag:170	type	ui.Task[Msg]	OK	(t-path ui Task (targs (t-path Msg)))
+frag:171	type	ui.Task[Msg, uses (net, suspend)]	OK	(t-path ui Task (targs (t-path Msg) (uses (req net) (req suspend))))
+frag:172	type	Result[(), any Error]	OK	(t-path Result (targs (t-unit) (t-any (t-path Error))))
+frag:173	expr	modules.load[Editor](url)	OK	(call (index (. (name modules) load) (name Editor)) (name url))
+frag:174	type	any Editor	OK	(t-any (t-path Editor))
+frag:175	generics	[life s]	OK	(generics (lparam s))
+frag:176	expr	Array[T, N].filled	OK	(. (index (name Array) (name T) (name N)) filled)
+frag:177	expr	task.scope_limited(1000, f)	OK	(call (. (name task) scope_limited) (int 1000) (name f))
+frag:178	expr	x.clone()	OK	(call (. (name x) clone))
+frag:179	expr	ui.Icon.Close	OK	(. (. (name ui) Icon) Close)
+frag:180	bound	Eq and Hash	OK	(bound (t-path Eq) (t-path Hash))
+frag:181	stmt	for x in v { }	OK	(for (bind x) (name v) (block))
+frag:182	type	Router[uses (net, suspend, heap)]	OK	(t-path Router (targs (uses (req net) (req suspend) (req heap))))
+frag:183	file_header	@file(production, target(lm3s6965))	OK	(header (harg production) (harg-target lm3s6965))
+frag:184	expr	xs.any(f)	OK	(call (. (name xs) any) (name f))
+frag:185	expr	xs.take(3)	OK	(call (. (name xs) take) (int 3))
+frag:186	expr	re.match(s)	OK	(call (. (name re) match) (name s))
+frag:187	expr	e.target()	OK	(call (. (name e) target))
+frag:188	expr	tok.type	OK	(. (name tok) type)
+frag:189	stmt	let end = start + len	OK	(let (bind end) (+ (name start) (name len)))
+frag:190	expr	xs[start..<end]	OK	(index (name xs) (..< (name start) (name end)))
+frag:191	stmt	let type = tok.type	OK	(let (bind type) (. (name tok) type))
+frag:192	expr	test(x)	OK	(call (name test) (name x))
+frag:193	stmt	let test = 1	OK	(let (bind test) (int 1))
+frag:194	expr	discard(x)	OK	(call (name discard) (name x))
+frag:195	decl	type Имя = Тип	OK	(decl (type-alias Имя (t-path Тип)))
+frag:196	decl	test "имя" { }	OK	(decl (test (str "имя") (block)))
+frag:197	stmt	discard self	OK	(discard-self)
+frag:198	decl	impl It { func take(self, n: usize) -> It { self }; func any(self) -> bool { true } }	OK	(decl (impl (t-path It) (member (func (sig take (params (self-param) (param n (: (t-path usize)))) (-> (t-path It))) (block (self)))) (member (func (sig any (params (self-param)) (-> (t-path bool))) (block (true))))))
+frag:199	type	func(mut model: Model, msg: Msg) -> Task[Msg]	OK	(t-func (params (fparam (mode mut) model (t-path Model)) (fparam msg (t-path Msg))) (-> (t-path Task (targs (t-path Msg)))))
+frag:200	type	func(take f: take func())	OK	(t-func (params (fparam (mode take) f (t-func (kind take) (params)))))
+frag:201	type	func(_: i64)	OK	(t-func (params (fparam _ (t-path i64))))
+frag:202	type	func(mut ref T)	OK	(t-func (params (fparam (t-mutref (t-path T)))))
+frag:203	type	func(mut x: mut ref T)	OK	(t-func (params (fparam (mode mut) x (t-mutref (t-path T)))))
+frag:204	stmt	match x { case A { } end case\nelse { } end else\n} end match	OK	(match (name x) (case (pats (p-path A)) (block) end) (case-else (block) end) end)
+frag:205	expr	f() catch { } end catch	OK	(catch (call (name f)) (block) end)
+frag:206	expr	f() catch err { 0 } end catch	OK	(catch (call (name f)) (err err) (block (int 0)) end)
+frag:207	expr	func(x) { } end func	OK	(closure (params (param x)) (block) end)
+frag:208	stmt	@low { } end @low	OK	(level-block @low (block) (end @low))
+frag:209	expr	target { case x86.sse4_2 { } end case\nelse { } end else\n} end target	OK	(target (case (req x86 sse4_2) (block) end) (case-else (block) end) end)
+frag:210	stmts	let ys = xs\n  .map(f)\n  // комментарий\n  .filter(g)\nlet z = 1	OK	(stmts (let (bind ys) (call (. (call (. (name xs) map) (name f)) filter) (name g))) (let (bind z) (int 1)))
+frag:211	stmt	if i == end { } end if	OK	(if (== (name i) (name end)) (block) end)
+frag:212	stmt	for type in types { }	OK	(for (bind type) (name types) (block))
+frag:213	decl	test "имя" { } end test	OK	(decl (test (str "имя") (block) end))
+frag:214	decl	extern "C" trust "обоснование" { } end extern	OK	(decl (extern-block (str "C") (str "обоснование") end))
+frag:215	expr	trust "обоснование" { } end trust	OK	(trust (str "обоснование") (block) end)
+frag:216	expr	provide fs = disk { } end provide	OK	(provide (pitem fs (name disk)) (block) end)
+frag:217	decl	struct Точка { x: f32; y: f32 } end Точка	OK	(decl (struct Точка (field x (t-path f32)) (field y (t-path f32)) (end Точка)))
+frag:218	stmt	while условие { } end while	OK	(while (name условие) (block) (end-kw while))
+frag:219	decl	enum E { A; B(i64) } end E	OK	(decl (enum E (variant A) (variant B (positional (t-path i64))) (end E)))
+frag:220	decl	interface I { func f(self) } end I	OK	(decl (interface I (member (sig f (params (self-param)))) (end I)))
+frag:221	stmts	let test = 1; test(x)	OK	(stmts (let (bind test) (int 1)) (call (name test) (name x)))
+frag:222	decl	func end() { } end end	OK	(decl (func (sig end (params)) (block) (end end)))
+frag:223	expr	func() { } end func catch { 0 }	OK	(catch (closure (params) (block) end) (block (int 0)))
+frag:224	import_decl	import m.{a, life as b}	OK	(import (path m) (group (item a) (item life (as b))))
+frag:225	expr	f(a, life(b))	OK	(call (name f) (name a) (call (name life) (name b)))
+frag:226	type	Table[K, life a]	OK	(t-path Table (targs (t-path K) (life a)))
+frag:227	type	Table[life self]	OK	(t-path Table (targs (life-self)))
+frag:228	decl	func test() { } end test	OK	(decl (func (sig test (params)) (block) (end test)))
+frag:229	stmt	test: loop { } end test	OK	(loop (label test) (block) (end test))
+neg:1	expr	a and b or c	ERROR
+neg:2	expr	a or b and c	ERROR
+neg:3	expr	a < b < c	ERROR
+neg:4	expr	a == b == c	ERROR
+neg:5	expr	a << b + c	ERROR
+neg:6	expr	a + b << c	ERROR
+neg:7	expr	a & b | c	ERROR
+neg:8	expr	a + b & c	ERROR
+neg:9	expr	a << b << c	ERROR
+neg:10	expr	0..<5..<9	ERROR
+neg:11	expr	x++	ERROR
+neg:12	expr	a && b	ERROR
+neg:13	expr	!a	ERROR
+neg:14	expr	a ? b : c	ERROR
+neg:15	expr	a .. b	ERROR
+neg:16	expr	x is A, B	ERROR
+neg:17	expr	f(a b)	ERROR
+neg:18	expr	007	ERROR
+neg:19	expr	1abc	ERROR
+neg:20	expr	"не закрыта	ERROR
+neg:21	expr	a = b	ERROR
+neg:22	stmt	x = y = z	ERROR
+neg:23	stmt	let x	ERROR
+neg:24	stmt	if (a) b	ERROR
+neg:25	stmt	for x of xs { }	ERROR
+neg:26	decl	class A { }	ERROR
+neg:27	decl	func f() -> T	ERROR
+neg:28	decl	struct P { x: f32, y: f32 }	ERROR
+neg:29	file	if a { }\nelse { }	ERROR
+neg:30	file	func f()\n{ }	ERROR
+neg:31	file	func f() { }\nimport a	ERROR
+neg:32	type	func(A) uses net uses fs	ERROR
+neg:33	type	ref (T)	ERROR
+neg:34	type	func(mut T)	ERROR
+neg:35	type	func(take T)	ERROR
+neg:36	stmt	let limit = 5	ERROR
+neg:37	stmt	let target = 1	ERROR
+neg:38	stmts	let a = b\n..< c	ERROR
+neg:39	decl	func f() { } end	ERROR
+neg:40	decl	test "имя" { } end	ERROR
+neg:41	stmt	if a { } end for	ERROR
+neg:42	decl	func f() { } end test "x"	ERROR
+neg:43	expr	(a,)	ERROR
+neg:44	expr	(,)	ERROR
+neg:45	expr	f(,)	ERROR
+neg:46	expr	f(a,,b)	ERROR
+neg:47	expr	[,]	ERROR
+neg:48	expr	a[]	ERROR
+neg:49	expr	a == not b	ERROR
+neg:50	expr	a + not b	ERROR
+neg:51	expr	a & b ^ c	ERROR
+neg:52	expr	try f() catch { } catch { }	ERROR
+neg:53	expr	x is A is B	ERROR
+neg:54	expr	provide () { }	ERROR
+neg:55	expr	provide a = b, c = d { }	ERROR
+neg:56	expr	match x { case a, { } }	ERROR
+neg:57	expr	match x { case { } }	ERROR
+neg:58	expr	if a { } else	ERROR
+neg:59	expr	f(mut)	ERROR
+neg:60	expr	f(a: )	ERROR
+neg:61	expr	@low	ERROR
+neg:62	expr	target { case a.b }	ERROR
+neg:63	expr	trust { }	ERROR
+neg:64	stmt	a + b = c	ERROR
+neg:65	stmt	-a = 1	ERROR
+neg:66	stmt	try a = 1	ERROR
+neg:67	stmt	x += y += z	ERROR
+neg:68	stmt	return return	ERROR
+neg:69	stmt	break 5	ERROR
+neg:70	stmt	assert	ERROR
+neg:71	stmt	for (a) in b { }	ERROR
+neg:72	stmt	for x in mut { }	ERROR
+neg:73	stmt	discard x	ERROR
+neg:74	stmt	l1: if a { }	ERROR
+neg:75	stmt	loop { } end if	ERROR
+neg:76	stmt	while a { } end 5	ERROR
+neg:77	type	(T,)	ERROR
+neg:78	type	ref (a, b) T	ERROR
+neg:79	type	mut T	ERROR
+neg:80	type	take T	ERROR
+neg:81	type	any any T	ERROR
+neg:82	type	T[]	ERROR
+neg:83	type	T[life (a,)]	ERROR
+neg:84	type	func(a: )	ERROR
+neg:85	type	func() -> -> T	ERROR
+neg:86	type	func() uses a without b uses c	ERROR
+neg:87	type	func() without a uses b	ERROR
+neg:88	type	ptr	ERROR
+neg:89	type	ref(self)	ERROR
+neg:90	type	A.B[T].C	ERROR
+neg:91	pattern	(a,)	ERROR
+neg:92	pattern	A(a: )	ERROR
+neg:93	pattern	-x	ERROR
+neg:94	pattern	- -1	ERROR
+neg:95	pattern	a | b	ERROR
+neg:96	decl	pub @inline func f() { }	ERROR
+neg:97	decl	func (a) { }	ERROR
+neg:98	decl	func f[]() { }	ERROR
+neg:99	decl	func f(a,,b) { }	ERROR
+neg:100	decl	func f() uses { }	ERROR
+neg:101	decl	func f() without a uses b { }	ERROR
+neg:102	decl	func f() -> func() uses a uses b { }	ERROR
+neg:103	decl	enum E { A() }	ERROR
+neg:104	decl	enum E { A(x: T, U) }	ERROR
+neg:105	decl	enum E { A(T, U) }	ERROR
+neg:106	decl	impl A for B for C { }	ERROR
+neg:107	decl	interface I { let }	ERROR
+neg:108	decl	type T	ERROR
+neg:109	decl	extern func f() { }	ERROR
+neg:110	decl	extern "C" { }	ERROR
+neg:111	decl	let (a) = b	ERROR
+neg:112	decl	let a: = b	ERROR
+neg:113	decl	const x	ERROR
+neg:114	import_decl	import a.	ERROR
+neg:115	import_decl	import a.{}	ERROR
+neg:116	import_decl	import a.{b} as c	ERROR
+neg:117	import_decl	import a as b as c	ERROR
+neg:118	file_header	@file()	ERROR
+neg:119	file_header	@file(a,)	ERROR
+neg:120	file	import a\n@file(b)	ERROR
+neg:121	file	x = 1 y = 2	ERROR
+neg:122	file	func f() { } func g() { }	ERROR
+neg:123	type	ref(x) (A, B)	ERROR
+neg:124	type	ptr (A, B)	ERROR
+neg:125	type	func() limit ()	ERROR
+neg:126	decl	pub x	ERROR
+sample:01-вычислитель.nx	file	@file(production)\nimport text.json.{parse, Value}\nimport net.tcp as t\n\n/// Выражение: тестовая программа, составлена из конструкций спецификации.\npub enum Expr {\n\tNum(i64)\n\tindirect Neg(Expr)\n\tindirect Bin(op: Op, left: Expr, right: Expr)\n}\n\nenum Op {\n\tAdd\n\tSub\n\tMul\n\tDiv\n}\n\npub enum EvalError {\n\tDivByZero\n\tOverflow(Str)\n}\n\nimpl Eq for Op {}\n\nimpl Display for EvalError {\n\tfunc show[uses E](self, mut out: TextOut[uses E]) uses E {\n\t\tmatch self {\n\t\t\tcase DivByZero { out.write("деление на ноль") }\n\t\t\tcase Overflow(what) { out.write("переполнение: $what") }\n\t\t}\n\t}\n}\n\n@system\npub func eval(e: Expr) -> Result[i64, EvalError] {\n\tmatch e {\n\t\tcase Num(n) { Ok(n) }\n\t\tcase Neg(inner) {\n\t\t\tlet v: i64 = try eval(inner)\n\t\t\tOk(-v)\n\t\t}\n\t\tcase Bin(op, left, right) {\n\t\t\tlet a: i64 = try eval(left)\n\t\t\tlet b: i64 = try eval(right)\n\t\t\tmatch op {\n\t\t\t\tcase Add { Ok(a + b) }\n\t\t\t\tcase Sub { Ok(a - b) }\n\t\t\t\tcase Mul { Ok(a * b) }\n\t\t\t\tcase Div if b == 0 { Err(EvalError.DivByZero) }\n\t\t\t\telse { Ok(a / b) }\n\t\t\t}\n\t\t}\n\t}\n} end eval\n\ntest "сложение" {\n\tlet e: Expr = Bin(op: Op.Add, left: Num(2), right: Num(3))\n\tassert eval(e) is Ok(5)\n\tassert eval(Num(1)) is Ok(v) and v == 1, "единица"\n}\n	OK	(file (header (harg production)) (import (path text json) (group (item parse) (item Value))) (import (path net tcp) (as t)) (decl pub (enum Expr (variant Num (positional (t-path i64))) (variant Neg indirect (positional (t-path Expr))) (variant Bin indirect (named (nf op (t-path Op)) (nf left (t-path Expr)) (nf right (t-path Expr)))))) (decl (enum Op (variant Add) (variant Sub) (variant Mul) (variant Div))) (decl pub (enum EvalError (variant DivByZero) (variant Overflow (positional (t-path Str))))) (decl (impl (t-path Eq) (for (t-path Op)))) (decl (impl (t-path Display) (for (t-path EvalError)) (member (func (sig show (generics (rparam E)) (params (self-param) (param (mode mut) out (: (t-path TextOut (targs (uses (req E))))))) (reqs (uses (req E)))) (block (match (self) (case (pats (p-path DivByZero)) (block (call (. (name out) write) (str "деление на ноль")))) (case (pats (p-ctor (p-path Overflow) (p-path what))) (block (call (. (name out) write) (str "переполнение: $what" (sub-name what))))))))))) (decl (level @system) pub (func (sig eval (params (param e (: (t-path Expr)))) (-> (t-path Result (targs (t-path i64) (t-path EvalError))))) (block (match (name e) (case (pats (p-ctor (p-path Num) (p-path n))) (block (call (name Ok) (name n)))) (case (pats (p-ctor (p-path Neg) (p-path inner))) (block (let (bind v) (: (t-path i64)) (try (call (name eval) (name inner)))) (call (name Ok) (neg (name v))))) (case (pats (p-ctor (p-path Bin) (p-path op) (p-path left) (p-path right))) (block (let (bind a) (: (t-path i64)) (try (call (name eval) (name left)))) (let (bind b) (: (t-path i64)) (try (call (name eval) (name right)))) (match (name op) (case (pats (p-path Add)) (block (call (name Ok) (+ (name a) (name b))))) (case (pats (p-path Sub)) (block (call (name Ok) (- (name a) (name b))))) (case (pats (p-path Mul)) (block (call (name Ok) (* (name a) (name b))))) (case (pats (p-path Div)) (guard (== (name b) (int 0))) (block (call (name Err) (. (name EvalError) DivByZero)))) (case-else (block (call (name Ok) (/ (name a) (name b)))))))))) (end eval))) (decl (test (str "сложение") (block (let (bind e) (: (t-path Expr)) (call (name Bin) (named-arg op (. (name Op) Add)) (named-arg left (call (name Num) (int 2))) (named-arg right (call (name Num) (int 3))))) (assert (is (call (name eval) (name e)) (p-ctor (p-path Ok) (p-int 5)))) (assert (and (is (call (name eval) (call (name Num) (int 1))) (p-ctor (p-path Ok) (p-path v))) (== (name v) (int 1))) (str "единица"))))))
+sample:02-система.nx	file	@file(strict)\nimport task\nimport c\n\n@layout(c)\n@packed\nstruct Header {\n\t@offset(0) magic: u32\n\t@offset(4) len: u16\n\tpub flags: u16 = 0\n}\n\nstruct Segments[life s] {\n\trest: ref(s) Str\n}\n\nstruct Router[uses E] {\n\troutes: List[Route[uses E]]\n}\n\ntype Handler[uses E] = any func(Request) -> Response uses E\n\ninterface Shape: Display {\n\tfunc area(self) -> f64\n\tfunc name(self) -> Str { "фигура" }\n}\n\nimpl[uses E] Router[uses E] {\n\tpub func add(mut self, path: Str, take h: Handler[uses E]) uses heap {\n\t\tself.routes.push(Route(path: path, handler: h))\n\t}\n\n\tpub func serve(self, req: Request) -> Result[Response, Error] uses (E, suspend) {\n\t\tfor r in self.routes {\n\t\t\tif r.path == req.path {\n\t\t\t\treturn Ok(try await r.handler(req))\n\t\t\t}\n\t\t}\n\t\tErr(Error.NotFound)\n\t}\n} end impl Router\n\nimpl Iterator for Segments {\n\tfunc next(mut self) -> Option[ref(self) Str] { None }\n}\n\n@system\nfunc first[T: Eq and Hash](xs: ref List[T]) -> ref(xs) T without (heap, crash) limit stack <= 4096 {\n\txs.get(0)\n}\n\n@link("z")\nextern "C" trust "сигнатуры сверены с zlib.h" {\n\tfunc crc32(crc: c.ulong, buf: ptr c.uchar, len: c.uint) -> c.ulong\n\tfunc deflateEnd(strm: mut ptr c.void) -> c.int uses trust\n}\n\nextern "C" func on_tick() {\n\tTICKS.add(1)\n}\n\nlet TICKS: Atomic[u64] = Atomic[u64].new(0)\nconst PAGE: usize = 4096\n\n@low\nfunc checksum(data: ref Bytes) -> u32 {\n\ttarget {\n\t\tcase x86.sse4_2 {\n\t\t\tvar crc: u32 = 0\n\t\t\tfor b in data { crc = x86.crc32_u8(crc, b) }\n\t\t\tcrc\n\t\t}\n\t\telse {\n\t\t\tvar crc: u32 = 0xFFFF_FFFF\n\t\t\tfor b in data {\n\t\t\t\tcrc = (crc >> 8) ^ TABLE[u8((crc ^ u32(b)) & 0xFF)]\n\t\t\t}\n\t\t\t~crc\n\t\t}\n\t}\n}\n\nfunc read_reg(p: ptr u32) -> u32 uses trust {\n\ttrust "адрес регистра задан профилем платы" { p.read() }\n}\n\nfunc with_fake_fs() -> Result[(), any Error] {\n\tprovide (fs = MemFs.new(), clock = FakeClock.new()) {\n\t\tlet f = try fs.open("a.txt")\n\t\touter: for line in f.lines() {\n\t\t\twhile true {\n\t\t\t\tif line.is_empty() { continue outer }\n\t\t\t\tbreak\n\t\t\t}\n\t\t}\n\t}\n\tOk(())\n}\n	OK	(file (header (harg strict)) (import (path task)) (import (path c)) (decl (attr @layout (args (name c))) (attr @packed) (struct Header (field magic (attr @offset (args (int 0))) (t-path u32)) (field len (attr @offset (args (int 4))) (t-path u16)) (field flags pub (t-path u16) (default (int 0))))) (decl (struct Segments (generics (lparam s)) (field rest (t-ref (origin s) (t-path Str))))) (decl (struct Router (generics (rparam E)) (field routes (t-path List (targs (t-path Route (targs (uses (req E))))))))) (decl (type-alias Handler (generics (rparam E)) (t-func (kind any) (params (fparam (t-path Request))) (-> (t-path Response)) (reqs (uses (req E)))))) (decl (interface Shape (bound (t-path Display)) (member (sig area (params (self-param)) (-> (t-path f64)))) (member (func (sig name (params (self-param)) (-> (t-path Str))) (block (str "фигура")))))) (decl (impl (generics (rparam E)) (t-path Router (targs (uses (req E)))) (member pub (func (sig add (params (self-param (mode mut)) (param path (: (t-path Str))) (param (mode take) h (: (t-path Handler (targs (uses (req E))))))) (reqs (uses (req heap)))) (block (call (. (. (self) routes) push) (call (name Route) (named-arg path (name path)) (named-arg handler (name h))))))) (member pub (func (sig serve (params (self-param) (param req (: (t-path Request)))) (-> (t-path Result (targs (t-path Response) (t-path Error)))) (reqs (uses (req E) (req suspend)))) (block (for (bind r) (. (self) routes) (block (if (== (. (name r) path) (. (name req) path)) (block (return (call (name Ok) (try (await (call (. (name r) handler) (name req)))))))))) (call (name Err) (. (name Error) NotFound))))) (end-impl (tname Router)))) (decl (impl (t-path Iterator) (for (t-path Segments)) (member (func (sig next (params (self-param (mode mut))) (-> (t-path Option (targs (t-ref (origin-self) (t-path Str)))))) (block (name None)))))) (decl (level @system) (func (sig first (generics (tparam T (bound (t-path Eq) (t-path Hash)))) (params (param xs (: (t-ref (t-path List (targs (t-path T))))))) (-> (t-ref (origin xs) (t-path T))) (reqs (without (req heap) (req crash)) (limit (limit-le stack (int 4096))))) (block (call (. (name xs) get) (int 0))))) (decl (attr @link (args (str "z"))) (extern-block (str "C") (str "сигнатуры сверены с zlib.h") (member (sig crc32 (params (param crc (: (t-path c ulong))) (param buf (: (t-ptr (t-path c uchar)))) (param len (: (t-path c uint)))) (-> (t-path c ulong)))) (member (sig deflateEnd (params (param strm (: (t-mutptr (t-path c void))))) (-> (t-path c int)) (reqs (uses (req-trust))))))) (decl (extern-func (str "C") (sig on_tick (params)) (block (call (. (name TICKS) add) (int 1))))) (decl (let (bind TICKS) (: (t-path Atomic (targs (t-path u64)))) (call (. (index (name Atomic) (name u64)) new) (int 0)))) (decl (const (bind PAGE) (: (t-path usize)) (int 4096))) (decl (level @low) (func (sig checksum (params (param data (: (t-ref (t-path Bytes))))) (-> (t-path u32))) (block (target (case (req x86 sse4_2) (block (var (bind crc) (: (t-path u32)) (int 0)) (for (bind b) (name data) (block (assign = (name crc) (call (. (name x86) crc32_u8) (name crc) (name b))))) (name crc))) (case-else (block (var (bind crc) (: (t-path u32)) (int 0xFFFF_FFFF)) (for (bind b) (name data) (block (assign = (name crc) (^ (paren (>> (name crc) (int 8))) (index (name TABLE) (call (name u8) (& (paren (^ (name crc) (call (name u32) (name b)))) (int 0xFF)))))))) (bitnot (name crc)))))))) (decl (func (sig read_reg (params (param p (: (t-ptr (t-path u32))))) (-> (t-path u32)) (reqs (uses (req-trust)))) (block (trust (str "адрес регистра задан профилем платы") (block (call (. (name p) read))))))) (decl (func (sig with_fake_fs (params) (-> (t-path Result (targs (t-unit) (t-any (t-path Error)))))) (block (provide (pitem fs (call (. (name MemFs) new))) (pitem clock (call (. (name FakeClock) new))) (block (let (bind f) (try (call (. (name fs) open) (str "a.txt")))) (for (label outer) (bind line) (call (. (name f) lines)) (block (while (true) (block (if (call (. (name line) is_empty)) (block (continue outer))) (break))))))) (call (name Ok) (unit))))))
+sample:03-скрипт.nx	file	// Скрипт уровня @high: инструкции верхнего уровня и операторы.\nimport ui\n\nlet names = ["Аня", "Борис", "Вера"]\nvar total = 0\nfor i in 0..<names.len() {\n\ttotal += i * 2\n}\nlet shown = names.map(func(n) { "привет, $n" })\nprint("итого ${total + 1} из ${names.len()}")\n\nlet big = 1_000_000\nlet ratio = 2.5e-3\nlet mask = (0b1010 | 0o17) & 0xFF\nlet ok = not (total == 0) and (big > 10 or ratio < 1.0)\nlet sign = if total >= 0 { 1 } else if total == -1 { 0 } else { -1 }\nlet pair = (1, "один")\nlet (num, word) = pair\nlet text = """\n\tмногострочный текст с \\$ и ${word}\n\t"""\nlet ch = '\\n'\nlet r = parse("12") catch err { 0 }\nlet v = try await fetch(url)\nlet w = await fetch(url) catch { default() }\nlet s = a + b * c - d % 2\nlet t = a & mask == 0\nlet u = -x * y\nlet z = x + f() catch { 0 }\nlet q = try f() + try g()\nx.field[0].call(mut buf, 1)\nnames[0] = "Яна"; total -= 1\nloop {\n\tif total > 3 { break }\n\ttotal += 1\n} end loop\n@prototype { experimental() }\nlet kind = match take pair {\n\tcase (0, _) { "ноль" }\n\tcase (n, "один"), (n, "раз") { "один" }\n\tcase _ { "другое" }\n}\nlet long = call(\n\tfirst,\n\tsecond,\n)\n	OK	(file (import (path ui)) (decl (let (bind names) (list (str "Аня") (str "Борис") (str "Вера")))) (decl (var (bind total) (int 0))) (for (bind i) (..< (int 0) (call (. (name names) len))) (block (assign += (name total) (* (name i) (int 2))))) (decl (let (bind shown) (call (. (name names) map) (closure (params (param n)) (block (str "привет, $n" (sub-name n))))))) (call (name print) (str "итого ${total + 1} из ${names.len()}" (sub (+ (name total) (int 1))) (sub (call (. (name names) len))))) (decl (let (bind big) (int 1_000_000))) (decl (let (bind ratio) (float 2.5e-3))) (decl (let (bind mask) (& (paren (| (int 0b1010) (int 0o17))) (int 0xFF)))) (decl (let (bind ok) (and (not (paren (== (name total) (int 0)))) (paren (or (> (name big) (int 10)) (< (name ratio) (float 1.0))))))) (decl (let (bind sign) (if (>= (name total) (int 0)) (block (int 1)) (else (if (== (name total) (neg (int 1))) (block (int 0)) (else (block (neg (int 1))))))))) (decl (let (bind pair) (tuple (int 1) (str "один")))) (decl (let (p-tuple (p-path num) (p-path word)) (name pair))) (decl (let (bind text) (str """\n\tмногострочный текст с \\$ и ${word}\n\t""" (sub (name word))))) (decl (let (bind ch) (char '\\n'))) (decl (let (bind r) (catch (call (name parse) (str "12")) (err err) (block (int 0))))) (decl (let (bind v) (try (await (call (name fetch) (name url)))))) (decl (let (bind w) (catch (await (call (name fetch) (name url))) (block (call (name default)))))) (decl (let (bind s) (- (+ (name a) (* (name b) (name c))) (% (name d) (int 2))))) (decl (let (bind t) (== (& (name a) (name mask)) (int 0)))) (decl (let (bind u) (* (neg (name x)) (name y)))) (decl (let (bind z) (+ (name x) (catch (call (name f)) (block (int 0)))))) (decl (let (bind q) (+ (try (call (name f))) (try (call (name g)))))) (call (. (index (. (name x) field) (int 0)) call) (mut-arg (name buf)) (int 1)) (assign = (index (name names) (int 0)) (str "Яна")) (assign -= (name total) (int 1)) (loop (block (if (> (name total) (int 3)) (block (break))) (assign += (name total) (int 1))) (end-kw loop)) (level-block @prototype (block (call (name experimental)))) (decl (let (bind kind) (match (mode take) (name pair) (case (pats (p-tuple (p-int 0) (p-wild))) (block (str "ноль"))) (case (pats (p-tuple (p-path n) (p-str (str "один"))) (p-tuple (p-path n) (p-str (str "раз")))) (block (str "один"))) (case (pats (p-wild)) (block (str "другое")))))) (decl (let (bind long) (call (name call) (name first) (name second)))))

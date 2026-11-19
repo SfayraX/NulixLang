@@ -3,30 +3,10 @@
 //! Файл `grammar/tokens.golden.tsv` записывает, что выдаёт проверочный лексер на каждом
 //! примере. Лексер на Rust обязан выдать то же самое, а где тот сообщает об ошибке — тоже ошибку.
 
-use nulixc::lexer::lex;
+mod common;
 
-fn unescape(text: &str) -> String {
-    let mut out = String::new();
-    let mut chars = text.chars();
-    loop {
-        match chars.next() {
-            None => break,
-            Some('\\') => match chars.next() {
-                Some('n') => out.push('\n'),
-                Some('t') => out.push('\t'),
-                Some('r') => out.push('\r'),
-                Some('\\') => out.push('\\'),
-                Some(other) => {
-                    out.push('\\');
-                    out.push(other);
-                }
-                None => out.push('\\'),
-            },
-            Some(c) => out.push(c),
-        }
-    }
-    out
-}
+use common::unescape;
+use nulixc::lexer::lex;
 
 #[test]
 fn lexer_matches_reference() {

@@ -1,4 +1,4 @@
-"""Проверка черновика грамматики Nulix.
+"""Проверка грамматики Nulix.
 
 1. Строит LALR(1)-разборщик в строгом режиме: любой конфликт — ошибка.
 2. Разбирает фрагменты из спецификации (grammar/fragments.tsv).
@@ -9,13 +9,12 @@
 import glob, os, re, sys
 from lark import Lark
 from lark.exceptions import LarkError
+from canon import Reference
 import nxlex
 
 G = sys.argv[1]
 VERBOSE = "-v" in sys.argv
-STARTS = ["file", "decl", "stmt", "stmts", "expr", "type", "pattern", "func_sig", "generics", "generic_args",
-          "reqs", "match_item", "import_decl", "attr", "sig_tail", "param", "field", "variant", "bound",
-          "file_header", "member"]
+STARTS = nxlex.STARTS
 grammar = open(os.path.join(G, "nulix.lark"), encoding="utf-8").read()
 try:
     parser = Lark(grammar, parser="lalr", lexer=nxlex.NxLexer, start=STARTS, strict=True)
@@ -29,18 +28,12 @@ print(f"грамматика собрана без конфликтов: пра�
       f"знаков и пометок {len(lits) - len(words)}")
 
 
+reference = Reference(G)       # тот же разборщик, с которым сверяется разборщик компилятора
+
+
 def parse(text, start):
-    """Возвращает None при успехе или текст ошибки."""
-    nxlex.EMBEDDED.clear()
-    nxlex.EOF_TERM = start in ("file", "stmts")
-    try:
-        parser.parse(text, start=start)
-        for line, sub in list(nxlex.EMBEDDED):
-            nxlex.EOF_TERM = False
-            parser.parse(sub, start="expr")
-    except (LarkError, nxlex.NxLexError) as e:
-        return " ".join(str(e).split())[:200]
-    return None
+    """Возвращает None при успехе или текст ошибки. Подстановки ${…} и правило вложенности учтены."""
+    return reference.error(start, text)
 
 
 # ── 2. фрагменты ──

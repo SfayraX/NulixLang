@@ -38,3 +38,90 @@ stmt	let limit = 5
 stmt	let target = 1
 stmts	let a = b\n..< c
 decl	func f() { } end
+decl	test "имя" { } end
+stmt	if a { } end for
+decl	func f() { } end test "x"
+expr	(a,)
+expr	(,)
+expr	f(,)
+expr	f(a,,b)
+expr	[,]
+expr	a[]
+expr	a == not b
+expr	a + not b
+expr	a & b ^ c
+expr	try f() catch { } catch { }
+expr	x is A is B
+expr	provide () { }
+expr	provide a = b, c = d { }
+expr	match x { case a, { } }
+expr	match x { case { } }
+expr	if a { } else
+expr	f(mut)
+expr	f(a: )
+expr	@low
+expr	target { case a.b }
+expr	trust { }
+stmt	a + b = c
+stmt	-a = 1
+stmt	try a = 1
+stmt	x += y += z
+stmt	return return
+stmt	break 5
+stmt	assert
+stmt	for (a) in b { }
+stmt	for x in mut { }
+stmt	discard x
+stmt	l1: if a { }
+stmt	loop { } end if
+stmt	while a { } end 5
+type	(T,)
+type	ref (a, b) T
+type	mut T
+type	take T
+type	any any T
+type	T[]
+type	T[life (a,)]
+type	func(a: )
+type	func() -> -> T
+type	func() uses a without b uses c
+type	func() without a uses b
+type	ptr
+type	ref(self)
+type	A.B[T].C
+pattern	(a,)
+pattern	A(a: )
+pattern	-x
+pattern	- -1
+pattern	a | b
+decl	pub @inline func f() { }
+decl	func (a) { }
+decl	func f[]() { }
+decl	func f(a,,b) { }
+decl	func f() uses { }
+decl	func f() without a uses b { }
+decl	func f() -> func() uses a uses b { }
+decl	enum E { A() }
+decl	enum E { A(x: T, U) }
+decl	enum E { A(T, U) }
+decl	impl A for B for C { }
+decl	interface I { let }
+decl	type T
+decl	extern func f() { }
+decl	extern "C" { }
+decl	let (a) = b
+decl	let a: = b
+decl	const x
+import_decl	import a.
+import_decl	import a.{}
+import_decl	import a.{b} as c
+import_decl	import a as b as c
+file_header	@file()
+file_header	@file(a,)
+file	import a\n@file(b)
+file	x = 1 y = 2
+file	func f() { } func g() { }
+type	ref(x) (A, B)
+type	ptr (A, B)
+type	func() limit ()
+decl	pub x

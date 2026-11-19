@@ -221,3 +221,20 @@ target(lm3s6965)	file_header	@file(production, target(lm3s6965))
 + let ys = xs\n  .map(f)\n  // комментарий\n  .filter(g)\nlet z = 1	stmts	let ys = xs\n  .map(f)\n  // комментарий\n  .filter(g)\nlet z = 1
 + if i == end { } end if	stmt	if i == end { } end if
 + for type in types { }	stmt	for type in types { }
++ test "имя" { } end test	decl	test "имя" { } end test
++ extern "C" trust "обоснование" { } end extern	decl	extern "C" trust "обоснование" { } end extern
++ trust "обоснование" { } end trust	expr	trust "обоснование" { } end trust
++ provide fs = disk { } end provide	expr	provide fs = disk { } end provide
++ struct Точка { x: f32; y: f32 } end Точка	decl	struct Точка { x: f32; y: f32 } end Точка
++ while условие { } end while	stmt	while условие { } end while
++ enum E { A; B(i64) } end E	decl	enum E { A; B(i64) } end E
++ interface I { func f(self) } end I	decl	interface I { func f(self) } end I
++ let test = 1; test(x)	stmts	let test = 1; test(x)
++ func end() { } end end	decl	func end() { } end end
++ func() { } end func catch { 0 }	expr	func() { } end func catch { 0 }
++ import m.{a, life as b}	import_decl	import m.{a, life as b}
++ f(a, life(b))	expr	f(a, life(b))
++ Table[K, life a]	type	Table[K, life a]
++ Table[life self]	type	Table[life self]
++ func test() { } end test	decl	func test() { } end test
++ test: loop { } end test	stmt	test: loop { } end test
