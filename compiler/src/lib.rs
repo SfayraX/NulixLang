@@ -8,6 +8,8 @@
 
 pub mod ast;
 pub mod dump;
+pub mod ir;
+pub mod ir_text;
 pub mod lexer;
 pub mod parser;
 pub mod stack;
