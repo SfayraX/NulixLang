@@ -68,6 +68,31 @@ fn decl_err<T>(at: &str, message: String) -> R<T> {
     })
 }
 
+/// Имя записывается текстом IR: оно непусто, без обратной кавычки и управляющих символов.
+fn name_ok(s: &str) -> bool {
+    !s.is_empty() && !s.chars().any(|c| c == '`' || c.is_control())
+}
+
+/// Имя функции: части через точку, каждая — имя без точки.
+fn func_name_ok(s: &str) -> bool {
+    s.split('.').all(name_ok)
+}
+
+/// Имя объявления; ссылки на имена проверяются тем, что они ведут к объявленному.
+fn check_name(at: &str, what: &str, name: &str) -> R<()> {
+    if name_ok(name) {
+        Ok(())
+    } else {
+        decl_err(
+            at,
+            format!(
+                "{} {:?}: имя нельзя записать текстом IR — оно пустое или с обратной кавычкой или управляющим символом",
+                what, name
+            ),
+        )
+    }
+}
+
 fn payload_types(p: &Payload) -> Vec<&Type> {
     match p {
         Payload::None => Vec::new(),
@@ -142,6 +167,7 @@ impl<'m> Decls<'m> {
     fn check_fields(&self, at: &str, fields: &[Field]) -> R<()> {
         let mut seen = HashSet::new();
         for f in fields {
+            check_name(at, "поле", &f.name)?;
             if !seen.insert(f.name.as_str()) {
                 return decl_err(at, format!("поле {} повторено", f.name));
             }
@@ -154,6 +180,7 @@ impl<'m> Decls<'m> {
 
     fn check_struct(&self, s: &StructDecl) -> R<()> {
         let at = format!("запись {}", s.name);
+        check_name(&at, "запись", &s.name)?;
         self.check_fields(&at, &s.fields)?;
         if s.copy {
             if let Some(f) = s.fields.iter().find(|f| !self.is_copy(&f.ty)) {
@@ -165,8 +192,10 @@ impl<'m> Decls<'m> {
 
     fn check_enum(&self, e: &EnumDecl) -> R<()> {
         let at = format!("перечисление {}", e.name);
+        check_name(&at, "перечисление", &e.name)?;
         let mut seen = HashSet::new();
         for v in &e.variants {
+            check_name(&at, "вариант", &v.name)?;
             if !seen.insert(v.name.as_str()) {
                 return decl_err(&at, format!("вариант {} повторён", v.name));
             }
@@ -199,11 +228,21 @@ impl<'m> Decls<'m> {
 
     fn check_signature(&self, f: &Func) -> R<()> {
         let at = format!("функция {}", f.name);
+        if !func_name_ok(&f.name) {
+            return decl_err(
+                &at,
+                format!(
+                    "функция {:?}: имя нельзя записать текстом IR — каждая часть между точками должна быть непустой, без обратной кавычки и управляющих символов",
+                    f.name
+                ),
+            );
+        }
         if !f.uses.is_empty() {
             return decl_err(&at, "требований uses на шаге 2 нет".to_string());
         }
         let mut seen = HashSet::new();
         for p in &f.params {
+            check_name(&at, "параметр", &p.name)?;
             if !seen.insert(p.name.as_str()) {
                 return decl_err(&at, format!("параметр {} повторён", p.name));
             }
@@ -956,6 +995,12 @@ impl<'d, 'm> Body<'d, 'm> {
     /// Объявление: у переменной один тип на всю функцию, параметр заново не объявляется.
     /// В переменной не должно остаться непростого значения.
     fn declare(&mut self, st: &mut St, name: &str, ty: &Type) -> R<()> {
+        if !name_ok(name) {
+            return self.fail(format!(
+                "переменная {:?}: имя нельзя записать текстом IR — оно пустое или с обратной кавычкой или управляющим символом",
+                name
+            ));
+        }
         self.check_type(ty)?;
         if self.modes.contains_key(name) {
             return self.fail(format!("{} — параметр, объявить его заново нельзя", name));
@@ -1702,6 +1747,12 @@ impl<'d, 'm> Body<'d, 'm> {
         body: &Block,
         after: &Option<State>,
     ) -> R<bool> {
+        if !name_ok(label) {
+            return self.fail(format!(
+                "метка цикла {:?}: имя нельзя записать текстом IR — оно пустое или с обратной кавычкой или управляющим символом",
+                label
+            ));
+        }
         if self.loops.iter().any(|f| f.label == label) {
             return self.fail(format!("цикл {} вложен в цикл с той же меткой", label));
         }

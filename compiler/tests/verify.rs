@@ -562,6 +562,100 @@ fn what_text_cannot_express_is_checked() {
     assert!(matches!(verify(&m), Err(e) if e.message.contains("make P: поля записи — в скобках")));
 }
 
+/// Каждое имя записывается текстом IR. Проверяются имена объявлений — остальные имена ведут к
+/// объявленным. Найдено независимым ревью 20 ноября 2026: программный модуль с пустым именем
+/// проходил проверку, а его текст не читался обратно.
+#[test]
+fn names_must_have_a_text_form() {
+    const BASE: &str = "ir 1\n\nstruct P { x: i64 }\n\nenum E { A, B(y: i64) }\n\nfunc f(p: i64) -> i64 {\n  local t: i64\n  v: i64 = const 1\n  loop L [held: v] {\n    break L\n  } [held: v]\n  return copy v\n}\n";
+    fn func(m: &mut Module) -> &mut Func {
+        match &mut m.decls[2] {
+            Decl::Func(f) => f,
+            _ => panic!("третье объявление — функция"),
+        }
+    }
+    type Spoil = fn(&mut Module);
+    let cases: [(&str, Spoil); 11] = [
+        ("запись \"\"", |m| {
+            if let Decl::Struct(s) = &mut m.decls[0] {
+                s.name = String::new();
+            }
+        }),
+        ("поле \"a`b\"", |m| {
+            if let Decl::Struct(s) = &mut m.decls[0] {
+                s.fields[0].name = "a`b".to_string();
+            }
+        }),
+        ("перечисление \"E\\u{7}\"", |m| {
+            if let Decl::Enum(e) = &mut m.decls[1] {
+                e.name = "E\u{7}".to_string();
+            }
+        }),
+        ("вариант \"\"", |m| {
+            if let Decl::Enum(e) = &mut m.decls[1] {
+                e.variants[0].name = String::new();
+            }
+        }),
+        ("поле \"x\\n\"", |m| {
+            if let Decl::Enum(e) = &mut m.decls[1] {
+                if let Payload::Fields(fs) = &mut e.variants[1].payload {
+                    fs[0].name = "x\n".to_string();
+                }
+            }
+        }),
+        ("функция \"a..b\"", |m| {
+            func(m).name = "a..b".to_string()
+        }),
+        ("функция \"a`b\"", |m| {
+            func(m).name = "a`b".to_string()
+        }),
+        ("параметр \"\"", |m| {
+            func(m).params[0].name = String::new()
+        }),
+        ("переменная \"t\\t\"", |m| {
+            if let Stmt::Local { name, .. } = &mut func(m).body.stmts[0] {
+                *name = "t\t".to_string();
+            }
+        }),
+        ("переменная \"\"", |m| {
+            if let Stmt::Define { name, .. } = &mut func(m).body.stmts[1] {
+                *name = String::new();
+            }
+        }),
+        ("метка цикла \"\"", |m| {
+            if let Stmt::Loop { label, .. } = &mut func(m).body.stmts[2] {
+                *label = String::new();
+            }
+        }),
+    ];
+    let base = module(BASE);
+    assert_eq!(verify(&base), Ok(()));
+    for (what, spoil) in cases {
+        let mut m = base.clone();
+        spoil(&mut m);
+        assert_ne!(m, base, "{}: порча не применилась", what);
+        let expected = format!("{}: имя нельзя записать текстом IR", what);
+        match verify(&m) {
+            Err(e) if e.message.contains(&expected) => {}
+            other => panic!("ожидался отказ «{}», а вышло {:?}", expected, other),
+        }
+        // и правда: текст такого модуля обратно не читается или читается другим модулем
+        assert_ne!(parse(&ir_text::print(&m)).ok(), Some(m), "{}", what);
+    }
+    // необычные, но записываемые имена принимаются, и текст читается обратно тем же модулем
+    let mut m = base.clone();
+    if let Decl::Struct(s) = &mut m.decls[0] {
+        s.name = "a.b".to_string();
+    }
+    func(&mut m).name = "Point.norm".to_string();
+    if let Stmt::Local { name, .. } = &mut func(&mut m).body.stmts[0] {
+        *name = "два слова".to_string();
+    }
+    func(&mut m).params[0].name = "copy".to_string();
+    assert_eq!(verify(&m), Ok(()));
+    assert_eq!(parse(&ir_text::print(&m)), Ok(m));
+}
+
 /// Проверка рекурсивна по вложенности, поэтому идёт на своём потоке с большим стеком: вызов с
 /// маленького стека не падает там, где маленького стека не хватило бы. Найдено независимым
 /// ревью 20 ноября 2026: раньше проверщик работал на стеке вызывающего. Предел вложенности IR
