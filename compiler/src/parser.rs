@@ -114,13 +114,10 @@ fn too_deep(line: u32) -> ParseError {
 /// Может ли выражение стоять слева от знака присваивания по грамматике: там допустима
 /// только цепочка из имени, скобок, литерала или блока с точками, вызовами и индексами.
 fn is_postfix_form(e: &Expr) -> bool {
-    match &e.kind {
-        ExprKind::Binary(_, _)
-        | ExprKind::Unary(_, _)
-        | ExprKind::Is(_, _)
-        | ExprKind::Catch(_) => false,
-        _ => true,
-    }
+    !matches!(
+        &e.kind,
+        ExprKind::Binary(_, _) | ExprKind::Unary(_, _) | ExprKind::Is(_, _) | ExprKind::Catch(_)
+    )
 }
 
 /// Выражение из подстановки `${…}`; `line` — строка, на которой подстановка стоит,
@@ -171,8 +168,8 @@ fn string_subs(raw: &str, first_line: u32, depth: u32) -> Res<Vec<StrSub>> {
                 return Err(too_deep(line));
             }
             subs.push(StrSub::Expr(embedded_expr(&inner, line, depth + 1)?));
-            for k in i..j {
-                if chars[k] == '\n' {
+            for c in &chars[i..j] {
+                if *c == '\n' {
                     line += 1;
                 }
             }

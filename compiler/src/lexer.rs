@@ -141,12 +141,10 @@ impl Lexer {
     }
 
     fn starts_with(&self, i: usize, s: &str) -> bool {
-        let mut k = i;
-        for c in s.chars() {
+        for (k, c) in (i..).zip(s.chars()) {
             if k >= self.text.len() || self.text[k] != c {
                 return false;
             }
-            k += 1;
         }
         true
     }
@@ -326,7 +324,7 @@ impl Lexer {
                 k += 1;
             }
             let digits = k - (i + 3);
-            if digits >= 1 && digits <= 6 && self.ch(k) == '}' {
+            if (1..=6).contains(&digits) && self.ch(k) == '}' {
                 return Some(k + 1);
             }
         }
@@ -426,7 +424,7 @@ impl Lexer {
                 }
                 return (k, false);
             }
-            if prefix == 'o' && digit >= '0' && digit <= '7' {
+            if prefix == 'o' && ('0'..='7').contains(&digit) {
                 let mut k = i + 3;
                 while (self.ch(k) >= '0' && self.ch(k) <= '7') || self.ch(k) == '_' {
                     k += 1;
@@ -587,10 +585,9 @@ impl Lexer {
                 };
                 let kind = if word == "_" {
                     TokenKind::Punct
-                } else if !KEYWORDS.contains(&word.as_str()) {
+                } else if !KEYWORDS.contains(&word.as_str()) || after_dot_or_func {
+                    // после точки и после func любое слово — имя
                     TokenKind::Name
-                } else if after_dot_or_func {
-                    TokenKind::Name // после точки и после func любое слово — имя
                 } else if CONTEXTUAL.contains(&word.as_str()) {
                     if self.contextual_keyword(&word, k) {
                         TokenKind::Keyword
