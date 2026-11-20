@@ -1,0 +1,65 @@
+# Проверки при каждом pull request и при изменении main.
+name: Проверки
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  style:
+    name: Формат и clippy (Rust 1.97.0)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: compiler
+    steps:
+      - uses: actions/checkout@v6
+      - name: Rust 1.97.0 — версия, на которой идёт работа
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.0
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: Тесты (Rust ${{ matrix.rust }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.87.0 — наименьшая версия из Cargo.toml; stable — последняя выпущенная
+        rust: ["1.87.0", "stable"]
+    defaults:
+      run:
+        working-directory: compiler
+    steps:
+      - uses: actions/checkout@v6
+      - name: Rust ${{ matrix.rust }}
+        run: |
+          rustup toolchain install ${{ matrix.rust }} --profile minimal
+          rustup default ${{ matrix.rust }}
+      - run: cargo test
+
+  grammar:
+    name: Грамматика и эталоны
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install lark==1.3.1
+      - name: Проверка грамматики
+        run: python3 tools/grammar/check.py grammar
+      - name: Эталоны собираются заново без изменений
+        run: |
+          python3 tools/grammar/dump_tokens.py grammar > grammar/tokens.golden.tsv
+          python3 tools/grammar/dump_trees.py grammar > grammar/trees.golden.tsv
+          python3 tools/grammar/fuzz.py grammar 3000 1 --max-tokens 150 > grammar/fuzz.golden.tsv
+          python3 tools/grammar/depth_cases.py grammar > grammar/depth.golden.tsv
+          python3 tools/grammar/build_doc.py grammar spec/grammar.md
+          git diff --exit-code

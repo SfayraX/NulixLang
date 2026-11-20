@@ -6,8 +6,11 @@
 use nulixc::parser::{parse_rule, MAX_DEPTH};
 use nulixc::stack;
 
-/// Способы вложить одно в другое: правило грамматики и текст с данным числом уровней.
-fn kinds() -> Vec<(&'static str, &'static str, fn(usize) -> String)> {
+/// Способ вложить одно в другое: название, правило грамматики и текст с данным числом уровней.
+type Kind = (&'static str, &'static str, fn(usize) -> String);
+
+/// Способы вложить одно в другое.
+fn kinds() -> Vec<Kind> {
     vec![
         ("круглые скобки", "expr", |n| {
             "(".repeat(n) + "1" + &")".repeat(n)
