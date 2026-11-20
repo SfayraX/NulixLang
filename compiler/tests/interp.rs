@@ -1213,6 +1213,29 @@ fn invalid_ir_stops_with_a_reason() {
             vec![],
             "в t ещё есть значение: сначала drop",
         ),
+        ("stale_lent_in_define", vec![], "другой вариант"),
+        ("stale_redefined_in_loop", vec![], "другой вариант"),
+        ("stale_lent_in_assign", vec![], "другой вариант"),
+        ("stale_if_in_loop", vec![], "другой вариант"),
+        ("stale_case_in_loop", vec![], "другой вариант"),
+        ("stale_else_in_loop", vec![], "другой вариант"),
+        ("stale_after_whole_write", vec![], "другой вариант"),
+        ("local_empties", vec![], "в x нет значения"),
+        ("local_unknown_type", vec![], "нет типа Q"),
+        ("conv_result_type", vec![], "не подходит к типу i32"),
+        ("borrow_wrong_type", vec![], "не подходит к параметру t"),
+        ("lend_wrong_type", vec![], "не подходит к параметру t"),
+        (
+            "make_duplicate_field",
+            vec![],
+            "поля указаны не так, как объявлены",
+        ),
+        (
+            "make_named_payload",
+            vec![],
+            "значения не подходят к объявлению варианта",
+        ),
+        ("shift_count_bool", vec![], "величина сдвига — целое"),
     ];
     for (func, args, fragment) in cases {
         invalid_with(call(&m, func, args), fragment);

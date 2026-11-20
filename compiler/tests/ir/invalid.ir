@@ -4,6 +4,10 @@ struct Token { id: i64 }
 
 struct Pair { a: Token, b: Token }
 
+struct Other { id: i64 }
+
+enum Opt { No, Yes(Token) }
+
 enum Shape { Circle(f64), Rect(w: f64, h: f64), Dot }
 
 copy enum Dir { Left(i64), Right(i64) }
@@ -480,4 +484,214 @@ func move_twice() {
 func redeclare_owned() {
   t: Token = make Token(id: const 1)
   local t: Token
+}
+
+; ── найдено независимым ревью 20 ноября 2026: каждую из этих проверок можно было убрать незаметно для тестов ──
+
+; в цикле вызов в определении отдаёт место для изменения
+func stale_lent_in_define() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  i: i64 = const 0
+  switch d {
+    case Left {
+      loop L [held: d, i] {
+        v: i64 = copy d.Left.0
+        x: i64 = call set_right(borrow mut d)
+        i = add.i64(copy i, const 1)
+        c: bool = ge.i64(copy i, const 2)
+        if c {
+          break L
+        } else { } [held: d, i]
+      } [held: d, i]
+    }
+    case Right { }
+  } [held: d, i]
+  return copy i
+}
+
+; в цикле переменная определяется заново
+func stale_redefined_in_loop() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  i: i64 = const 0
+  switch d {
+    case Left {
+      loop L [held: d, i] {
+        v: i64 = copy d.Left.0
+        d: Dir = make Dir.Right(copy v)
+        i = add.i64(copy i, const 1)
+        c: bool = ge.i64(copy i, const 2)
+        if c {
+          break L
+        } else { } [held: d, i]
+      } [held: d, i]
+    }
+    case Right { }
+  } [held: d, i]
+  return copy i
+}
+
+; в цикле вызов в записи отдаёт место для изменения
+func stale_lent_in_assign() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  i: i64 = const 0
+  x: i64 = const 0
+  switch d {
+    case Left {
+      loop L [held: d, i, x] {
+        v: i64 = copy d.Left.0
+        x = call set_right(borrow mut d)
+        i = add.i64(copy i, const 1)
+        c: bool = ge.i64(copy i, const 2)
+        if c {
+          break L
+        } else { } [held: d, i, x]
+      } [held: d, i, x]
+    }
+    case Right { }
+  } [held: d, i, x]
+  return copy i
+}
+
+; в цикле запись внутри ветки if
+func stale_if_in_loop() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  i: i64 = const 0
+  switch d {
+    case Left {
+      loop L [held: d, i] {
+        v: i64 = copy d.Left.0
+        t: bool = eq.i64(copy v, const 5)
+        if t {
+          d = make Dir.Right(copy v)
+        } else { } [held: d, i]
+        i = add.i64(copy i, const 1)
+        c: bool = ge.i64(copy i, const 2)
+        if c {
+          break L
+        } else { } [held: d, i]
+      } [held: d, i]
+    }
+    case Right { }
+  } [held: d, i]
+  return copy i
+}
+
+; в цикле запись внутри ветки case
+func stale_case_in_loop() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  i: i64 = const 0
+  switch d {
+    case Left {
+      loop L [held: d, i] {
+        v: i64 = copy d.Left.0
+        switch i {
+          case 0 {
+            d = make Dir.Right(copy v)
+          }
+          else { }
+        } [held: d, i]
+        i = add.i64(copy i, const 1)
+        c: bool = ge.i64(copy i, const 2)
+        if c {
+          break L
+        } else { } [held: d, i]
+      } [held: d, i]
+    }
+    case Right { }
+  } [held: d, i]
+  return copy i
+}
+
+; в цикле запись внутри else у switch
+func stale_else_in_loop() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  i: i64 = const 0
+  switch d {
+    case Left {
+      loop L [held: d, i] {
+        v: i64 = copy d.Left.0
+        switch i {
+          case 5 { }
+          else {
+            d = make Dir.Right(copy v)
+          }
+        } [held: d, i]
+        i = add.i64(copy i, const 1)
+        c: bool = ge.i64(copy i, const 2)
+        if c {
+          break L
+        } else { } [held: d, i]
+      } [held: d, i]
+    }
+    case Right { }
+  } [held: d, i]
+  return copy i
+}
+
+; запись в массив целиком меняет вариант выбранного элемента
+func stale_after_whole_write() -> i64 {
+  d0: Dir = make Dir.Left(const 5)
+  a: Array[Dir, 2] = array(copy d0, copy d0)
+  switch a[0] {
+    case Left {
+      d1: Dir = make Dir.Right(const 0)
+      a = array(copy d1, copy d1)
+      r: i64 = copy a[0].Left.0
+      return copy r
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+; local опустошает переменную
+func local_empties() -> i64 {
+  x: i64 = const 1
+  local x: i64
+  r: i64 = copy x
+  return copy r
+}
+
+func local_unknown_type() {
+  local x: Q
+}
+
+func conv_result_type() {
+  x: i64 = const 1
+  r: i32 = conv.i64.i64(copy x)
+}
+
+func poke(t: Token mut) { }
+
+func borrow_wrong_type() {
+  o: Other = make Other(id: const 1)
+  call look_t(borrow o)
+  drop o
+}
+
+func lend_wrong_type() {
+  o: Other = make Other(id: const 1)
+  call poke(borrow mut o)
+  drop o
+}
+
+func make_duplicate_field() {
+  x: Token = make Token(id: const 1)
+  y: Token = make Token(id: const 2)
+  z: Token = make Token(id: const 3)
+  p: Pair = make Pair(a: move x, a: move y, b: move z)
+  drop p
+}
+
+func make_named_payload() {
+  t: Token = make Token(id: const 1)
+  o: Opt = make Opt.Yes(v: move t)
+  drop o
+}
+
+func shift_count_bool() -> i64 {
+  x: i64 = const 1
+  r: i64 = shl.i64(copy x, const true)
+  return copy r
 }

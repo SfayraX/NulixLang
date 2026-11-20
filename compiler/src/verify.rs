@@ -21,8 +21,13 @@ pub struct VerifyError {
 
 type R<T> = Result<T, VerifyError>;
 
-/// Проверяет модуль целиком.
+/// Проверяет модуль целиком. Проверка рекурсивна по вложенности блоков и типов, поэтому
+/// идёт на потоке с большим стеком (`stack::run_scoped`), как разбор и интерпретатор.
 pub fn verify(m: &Module) -> R<()> {
+    crate::stack::run_scoped(|| verify_module(m))
+}
+
+fn verify_module(m: &Module) -> R<()> {
     let d = Decls::new(m)?;
     for decl in &m.decls {
         match decl {
@@ -1124,7 +1129,7 @@ impl<'d, 'm> Body<'d, 'm> {
                 let f = self.func(func)?;
                 if self.d.is_never(&f.result) {
                     return self.fail(format!(
-                        "функцию {} с результатом без значений вызывают только инструкцией call",
+                        "функцию {} с результатом — перечислением без вариантов — вызывают только инструкцией call",
                         func
                     ));
                 }
@@ -1327,7 +1332,7 @@ impl<'d, 'm> Body<'d, 'm> {
                 if i + 1 < n {
                     self.path.push((i + 2).to_string());
                     return self.fail(
-                        "инструкция недостижима: перед ней выход из блока — return, break, continue, crash, вызов функции с результатом без значений или конструкция, из которой нет выхода"
+                        "инструкция недостижима: перед ней выход из блока — return, break, continue, crash, вызов функции с результатом — перечислением без вариантов — или конструкция, из которой нет выхода"
                             .to_string(),
                     );
                 }
@@ -1416,7 +1421,7 @@ impl<'d, 'm> Body<'d, 'm> {
                 let never = self.d.is_never(&f.result);
                 if f.result != Type::Unit && !never {
                     return self.fail(format!(
-                        "результат вызова {} не используется: инструкция call — для функций с результатом () или без значений",
+                        "результат вызова {} не используется: инструкция call — для функций с результатом () или перечислением без вариантов",
                         func
                     ));
                 }

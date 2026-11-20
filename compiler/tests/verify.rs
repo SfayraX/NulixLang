@@ -278,6 +278,48 @@ const INVALID_CASES: &[(&str, &str)] = &[
         "redeclare_owned",
         "в t ещё есть непростое значение: сначала drop",
     ),
+    (
+        "stale_lent_in_define",
+        "d.Left.0: вариант в d здесь неизвестен",
+    ),
+    (
+        "stale_redefined_in_loop",
+        "d.Left.0: вариант в d здесь неизвестен",
+    ),
+    (
+        "stale_lent_in_assign",
+        "d.Left.0: вариант в d здесь неизвестен",
+    ),
+    ("stale_if_in_loop", "d.Left.0: вариант в d здесь неизвестен"),
+    (
+        "stale_case_in_loop",
+        "d.Left.0: вариант в d здесь неизвестен",
+    ),
+    (
+        "stale_else_in_loop",
+        "d.Left.0: вариант в d здесь неизвестен",
+    ),
+    (
+        "stale_after_whole_write",
+        "a[0].Left.0: вариант в a[0] здесь неизвестен",
+    ),
+    ("local_empties", "copy x: значения нет"),
+    ("local_unknown_type", "нет типа Q"),
+    ("conv_result_type", "значение типа i64 там, где ждут i32"),
+    (
+        "borrow_wrong_type",
+        "значение типа Other там, где ждут Token",
+    ),
+    ("lend_wrong_type", "значение типа Other там, где ждут Token"),
+    (
+        "make_duplicate_field",
+        "make Pair: поля указаны не так, как объявлены",
+    ),
+    (
+        "make_named_payload",
+        "make Opt.Yes: значения не подходят к объявлению варианта",
+    ),
+    ("shift_count_bool", "величина сдвига — целое"),
 ];
 
 #[test]
@@ -487,6 +529,63 @@ fn declarations_are_checked() {
         e.variants[0].payload = Payload::Fields(Vec::new());
     }
     assert!(matches!(verify(&m), Err(e) if e.message.contains("у варианта A пустой список полей")));
+}
+
+/// Чего текстом не записать: читатель IR такого не пропустит, но модуль можно собрать и
+/// программно, например переводом. Найдено независимым ревью 20 ноября 2026.
+#[test]
+fn what_text_cannot_express_is_checked() {
+    let mut m = module("ir 1\n\nfunc f() -> i64 {\n  x: i64 = const 1\n  r: i64 = neg.i64(copy x)\n  return copy r\n}\n");
+    if let Decl::Func(f) = &mut m.decls[0] {
+        if let Stmt::Define {
+            value: Rhs::Op { args, .. },
+            ..
+        } = &mut f.body.stmts[1]
+        {
+            args.push(args[0].clone());
+        }
+    }
+    assert!(
+        matches!(verify(&m), Err(e) if e.message.contains("операция neg берёт операндов: 1; дано: 2"))
+    );
+    let mut m =
+        module("ir 1\n\nstruct P { a: i64 }\n\nfunc f() {\n  p: P = make P(a: const 1)\n}\n");
+    if let Decl::Func(f) = &mut m.decls[1] {
+        if let Stmt::Define {
+            value: Rhs::Make { args, .. },
+            ..
+        } = &mut f.body.stmts[0]
+        {
+            *args = None;
+        }
+    }
+    assert!(matches!(verify(&m), Err(e) if e.message.contains("make P: поля записи — в скобках")));
+}
+
+/// Проверка рекурсивна по вложенности, поэтому идёт на своём потоке с большим стеком: вызов с
+/// маленького стека не падает там, где маленького стека не хватило бы. Найдено независимым
+/// ревью 20 ноября 2026: раньше проверщик работал на стеке вызывающего. Предел вложенности IR
+/// вводится на шаге 5.
+#[test]
+fn deep_nesting_does_not_overflow_the_callers_stack() {
+    let n = 3000;
+    let text = format!(
+        "ir 1\n\nfunc f(c: bool) {{\n{}{}}}\n",
+        "if c { ".repeat(n),
+        "} else { } [held:] ".repeat(n)
+    );
+    let result = nulixc::stack::run(move || {
+        let m = module(&text);
+        std::thread::scope(|s| {
+            std::thread::Builder::new()
+                .stack_size(1 << 20)
+                .spawn_scoped(s, || verify(&m))
+                .expect("поток")
+                .join()
+                .expect("проверщик упал")
+        })
+    });
+    assert_eq!(result, Ok(()));
 }
 
 // ───────── порча ─────────
