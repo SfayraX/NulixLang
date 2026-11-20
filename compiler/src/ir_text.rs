@@ -118,7 +118,8 @@ fn param(p: &Param) -> String {
     format!("{}: {}{}", name(&p.name), ty(&p.ty), mode)
 }
 
-fn ty(t: &Type) -> String {
+/// Тип в текстовой форме — для сообщений.
+pub(crate) fn ty(t: &Type) -> String {
     match t {
         Type::Scalar(s) => s.name().to_string(),
         Type::Unit => "()".to_string(),
@@ -285,7 +286,8 @@ fn operand(v: &Operand) -> String {
     }
 }
 
-fn place(p: &Place) -> String {
+/// Место в текстовой форме — для сообщений.
+pub(crate) fn place(p: &Place) -> String {
     let mut out = name(&p.base);
     for s in &p.path {
         match s {
