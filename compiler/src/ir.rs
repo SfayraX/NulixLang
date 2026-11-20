@@ -151,6 +151,26 @@ impl Scalar {
     pub fn from_name(name: &str) -> Option<Scalar> {
         SCALARS.iter().copied().find(|s| s.name() == name)
     }
+
+    /// Пределы целого типа; у остальных скаляров их нет.
+    pub fn int_range(self) -> Option<(i128, i128)> {
+        Some(match self {
+            Scalar::I8 => (i8::MIN as i128, i8::MAX as i128),
+            Scalar::I16 => (i16::MIN as i128, i16::MAX as i128),
+            Scalar::I32 => (i32::MIN as i128, i32::MAX as i128),
+            Scalar::I64 => (i64::MIN as i128, i64::MAX as i128),
+            Scalar::U8 => (0, u8::MAX as i128),
+            Scalar::U16 => (0, u16::MAX as i128),
+            Scalar::U32 => (0, u32::MAX as i128),
+            Scalar::U64 => (0, u64::MAX as i128),
+            _ => return None,
+        })
+    }
+
+    /// Знаковое целое.
+    pub fn is_signed(self) -> bool {
+        matches!(self, Scalar::I8 | Scalar::I16 | Scalar::I32 | Scalar::I64)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
