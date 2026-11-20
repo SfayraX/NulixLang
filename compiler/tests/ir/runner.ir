@@ -1,0 +1,55 @@
+ir 1
+
+enum Never { }
+
+func forever() {
+  loop L [held:] { }
+}
+
+func down(n: i64) -> i64 {
+  m: i64 = add.i64(copy n, const 1)
+  r: i64 = call down(copy m)
+  return copy r
+}
+
+func depth(n: i64) -> i64 {
+  t: bool = eq.i64(copy n, const 0)
+  if t {
+    return const 0
+  } else { } [held:]
+  m: i64 = sub.i64(copy n, const 1)
+  r: i64 = call depth(copy m)
+  return copy r
+}
+
+func fail() -> Never {
+  crash "отказ"
+}
+
+test "проходит" { }
+
+test "авария" {
+  crash "бах"
+}
+
+test "бюджет" {
+  call forever()
+}
+
+test "стек" {
+  t: i64 = call down(const 0)
+}
+
+test "never" {
+  call fail()
+}
+
+test "три шага" {
+  a: i64 = const 1
+  b: i64 = const 2
+  c: i64 = const 3
+}
+
+test "после" {
+  t: i64 = call depth(const 10)
+}

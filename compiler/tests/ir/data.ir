@@ -1,0 +1,332 @@
+ir 1
+
+struct Token { id: i64 }
+
+struct Pair { a: Token, b: Token }
+
+copy struct Point { x: f64, y: f64 }
+
+enum Shape { Circle(f64), Rect(w: f64, h: f64), Dot }
+
+enum Opt { No, Yes(Token) }
+
+copy enum Dir { Left(i64), Right(i64) }
+
+func area(s: Shape) -> f64 {
+  switch s {
+    case Circle {
+      r: f64 = copy s.Circle.0
+      t: f64 = mul.f64(copy r, copy r)
+      return copy t
+    }
+    case Rect {
+      t2: f64 = mul.f64(copy s.Rect.w, copy s.Rect.h)
+      return copy t2
+    }
+    case Dot {
+      return const 0.0
+    }
+  }
+}
+
+func areas() -> f64 {
+  a: Shape = make Shape.Circle(const 2.0)
+  b: Shape = make Shape.Rect(w: const 3.0, h: const 0.5)
+  c: Shape = make Shape.Dot
+  x: f64 = call area(borrow a)
+  y: f64 = call area(borrow b)
+  z: f64 = call area(borrow c)
+  drop a
+  drop b
+  drop c
+  s: f64 = add.f64(copy x, copy y)
+  s = add.f64(copy s, copy z)
+  return copy s
+}
+
+func pair(x: i64, y: i64) -> Pair {
+  ta: Token = make Token(id: copy x)
+  tb: Token = make Token(id: copy y)
+  p: Pair = make Pair(b: move tb, a: move ta)
+  return move p
+}
+
+func take_a(p: Pair take) -> i64 {
+  a: Token = move p.a
+  t: i64 = copy a.id
+  drop a
+  drop p
+  return copy t
+}
+
+func refill(p: Pair take) -> Pair {
+  a: Token = move p.a
+  drop a
+  p.a = make Token(id: const 7)
+  return move p
+}
+
+func swap_ids(p: Pair mut) {
+  t: i64 = copy p.a.id
+  p.a.id = copy p.b.id
+  p.b.id = copy t
+}
+
+func use_swap() -> i64 {
+  p: Pair = call pair(const 1, const 2)
+  call swap_ids(borrow mut p)
+  r: i64 = copy p.a.id
+  drop p
+  return copy r
+}
+
+func use_take() -> i64 {
+  p: Pair = call pair(const 3, const 4)
+  r: i64 = call take_a(move p)
+  return copy r
+}
+
+func use_refill() -> i64 {
+  p: Pair = call pair(const 3, const 4)
+  q: Pair = call refill(move p)
+  t1: i64 = copy q.a.id
+  t2: i64 = copy q.b.id
+  drop q
+  t3: i64 = mul.i64(copy t1, const 10)
+  r: i64 = add.i64(copy t3, copy t2)
+  return copy r
+}
+
+func bump(n: i64 take) -> i64 {
+  n = add.i64(copy n, const 1)
+  return copy n
+}
+
+func use_bump() -> i64 {
+  x: i64 = const 5
+  y: i64 = call bump(copy x)
+  r: i64 = add.i64(copy x, copy y)
+  return copy r
+}
+
+func mirror(p: Point) -> Point {
+  t: f64 = neg.f64(copy p.x)
+  q: Point = make Point(x: copy t, y: copy p.y)
+  return copy q
+}
+
+func fill(buf: Array[i64, 4] mut, v: i64) {
+  i: i64 = const 0
+  loop L [held: i] {
+    t: bool = lt.i64(copy i, const 4)
+    if t { } else {
+      break L
+    } [held: i]
+    buf[i] = copy v
+    i = add.i64(copy i, const 1)
+  } [held: i]
+}
+
+func sum4(xs: Array[i64, 4]) -> i64 {
+  s: i64 = add.i64(copy xs[0], copy xs[1])
+  s = add.i64(copy s, copy xs[2])
+  s = add.i64(copy s, copy xs[3])
+  return copy s
+}
+
+func fill_sum() -> i64 {
+  a: Array[i64, 4] = array(const 1, const 2, const 3, const 4)
+  s0: i64 = call sum4(copy a)
+  call fill(borrow mut a, const 5)
+  s1: i64 = call sum4(copy a)
+  t: i64 = mul.i64(copy s0, const 100)
+  r: i64 = add.i64(copy t, copy s1)
+  return copy r
+}
+
+func at(xs: Array[i64, 4], i: i64) -> i64 {
+  v: i64 = copy xs[i]
+  return copy v
+}
+
+func grid() -> i64 {
+  r0: Array[i64, 2] = array(const 1, const 2)
+  r1: Array[i64, 2] = array(const 3, const 4)
+  g: Array[Array[i64, 2], 2] = array(copy r0, copy r1)
+  g[1][0] = const 30
+  t0: i64 = copy g[1][0]
+  t1: i64 = copy r1[0]
+  r: i64 = add.i64(copy t0, copy t1)
+  return copy r
+}
+
+func tuples() -> char {
+  inner: (bool, char) = tuple(const true, const 'x')
+  t: (i64, (bool, char)) = tuple(const 5, copy inner)
+  c: char = copy t.1.1
+  return copy c
+}
+
+; непростое значение переживает цикл: записанные состояния называют его
+func carry(n: i64) -> i64 {
+  t: Token = make Token(id: const 0)
+  i: i64 = const 0
+  loop L [held: t, i] {
+    c: bool = ge.i64(copy i, copy n)
+    if c {
+      break L
+    } else { } [held: t, i]
+    id: i64 = add.i64(copy t.id, copy i)
+    drop t
+    t = make Token(id: copy id)
+    i = add.i64(copy i, const 1)
+  } [held: t, i]
+  r: i64 = copy t.id
+  drop t
+  return copy r
+}
+
+; поле забрано до ветвления: после слияния записано оставшееся поле
+func split(flag: bool) -> i64 {
+  p: Pair = call pair(const 1, const 2)
+  a: Token = move p.a
+  if flag {
+    drop a
+  } else {
+    b: Token = move a
+    drop b
+  } [held: p.b]
+  r: i64 = copy p.b.id
+  drop p
+  return copy r
+}
+
+; значение варианта забирается в его ветке
+func unwrap_or(o: Opt take, d: i64) -> i64 {
+  switch o {
+    case Yes {
+      t: Token = move o.Yes.0
+      r: i64 = copy t.id
+      drop t
+      return copy r
+    }
+    case No {
+      drop o
+      return copy d
+    }
+  }
+}
+
+func use_unwrap(k: i64) -> i64 {
+  t: Token = make Token(id: copy k)
+  y: Opt = make Opt.Yes(move t)
+  n: Opt = make Opt.No
+  a: i64 = call unwrap_or(move y, const -1)
+  b: i64 = call unwrap_or(move n, const -1)
+  r: i64 = mul.i64(copy a, copy b)
+  return copy r
+}
+
+; вариант известен во всём цикле: тело цикла место не переписывает
+func sum_width(s: Shape, n: i64) -> f64 {
+  acc: f64 = const 0.0
+  switch s {
+    case Rect {
+      i: i64 = const 0
+      loop L [held: acc, i] {
+        c: bool = ge.i64(copy i, copy n)
+        if c {
+          break L
+        } else { } [held: acc, i]
+        acc = add.f64(copy acc, copy s.Rect.w)
+        i = add.i64(copy i, const 1)
+      } [held: acc, i]
+    }
+    else { }
+  } [held: acc]
+  return copy acc
+}
+
+func swap(a: i64 mut, b: i64 mut) {
+  t: i64 = copy a
+  a = copy b
+  b = copy t
+}
+
+; элементы с разными числами-номерами не пересекаются: их можно одолжить в одном вызове
+func swap_ends() -> i64 {
+  xs: Array[i64, 3] = array(const 1, const 2, const 3)
+  call swap(borrow mut xs[0], borrow mut xs[2])
+  t0: i64 = copy xs[0]
+  t2: i64 = copy xs[2]
+  t: i64 = mul.i64(copy t0, const 10)
+  r: i64 = add.i64(copy t, copy t2)
+  return copy r
+}
+
+; запись в одной ветке не мешает другой читать значение варианта
+func turn(d: Dir take, flag: bool) -> i64 {
+  switch d {
+    case Left {
+      if flag {
+        d = make Dir.Right(const 0)
+        return const -1
+      } else {
+        r: i64 = copy d.Left.0
+        return copy r
+      }
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+; то же для веток switch: запись в одной ветке не мешает другим
+func turn_by(d: Dir take, n: i64) -> i64 {
+  switch d {
+    case Left {
+      switch n {
+        case 0 {
+          d = make Dir.Right(const 0)
+          return const -1
+        }
+        case 1 {
+          r: i64 = copy d.Left.0
+          return copy r
+        }
+        case 2 {
+          d = make Dir.Right(const 0)
+          return const -2
+        }
+        else {
+          r: i64 = copy d.Left.0
+          return copy r
+        }
+      }
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+; все поля забраны, затем записаны заново: значение снова целое
+func rebuild(p: Pair take) -> Pair {
+  a: Token = move p.a
+  b: Token = move p.b
+  p.a = move b
+  p.b = move a
+  return move p
+}
+
+func use_rebuild() -> i64 {
+  p: Pair = call pair(const 1, const 2)
+  q: Pair = call rebuild(move p)
+  t1: i64 = copy q.a.id
+  t2: i64 = copy q.b.id
+  drop q
+  t: i64 = mul.i64(copy t1, const 10)
+  r: i64 = add.i64(copy t, copy t2)
+  return copy r
+}

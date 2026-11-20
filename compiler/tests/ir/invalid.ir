@@ -1,0 +1,483 @@
+ir 1
+
+struct Token { id: i64 }
+
+struct Pair { a: Token, b: Token }
+
+enum Shape { Circle(f64), Rect(w: f64, h: f64), Dot }
+
+copy enum Dir { Left(i64), Right(i64) }
+
+enum Never { }
+
+func read_empty() -> i64 {
+  local x: i64
+  r: i64 = copy x
+  return copy r
+}
+
+func copy_owned() {
+  t: Token = make Token(id: const 1)
+  u: Token = copy t
+  drop t
+  drop u
+}
+
+func overwrite() {
+  t: Token = make Token(id: const 1)
+  t = make Token(id: const 2)
+  drop t
+}
+
+func leak() {
+  t: Token = make Token(id: const 1)
+}
+
+; осталась только простая часть — отдавать нечего
+func half_ok() {
+  tk: Token = make Token(id: const 1)
+  t: (i64, Token) = tuple(const 1, move tk)
+  u: Token = move t.1
+  drop u
+}
+
+; осталась непростая часть — значение не отдано
+func half_leak() {
+  t1: Token = make Token(id: const 1)
+  t2: Token = make Token(id: const 2)
+  p: (Token, Token) = tuple(move t1, move t2)
+  u: Token = move p.0
+  drop u
+}
+
+func no_return() -> i64 {
+  x: i64 = const 1
+}
+
+func bare_return() -> i64 {
+  return
+}
+
+func no_case(x: i64) -> i64 {
+  switch x {
+    case 1 {
+      return const 1
+    }
+  }
+}
+
+func bad_label() {
+  break Nowhere
+}
+
+func big_const() -> u8 {
+  return const 300
+}
+
+func f32_inexact() -> f32 {
+  return const 0.1
+}
+
+func f32_exact() -> f32 {
+  return const 0.10000000149011612
+}
+
+func borrow_value() {
+  x: i64 = const 1
+  y: i64 = borrow x
+}
+
+func unknown() {
+  call nobody()
+}
+
+func takes_mut(x: i64 mut) { }
+
+func arity() {
+  call takes_mut()
+}
+
+func wrong_mode() {
+  x: i64 = const 1
+  call takes_mut(borrow x)
+}
+
+func drop_param(t: Token) {
+  drop t
+}
+
+func move_param(t: Token) -> Token {
+  return move t
+}
+
+func write_param(x: i64) {
+  x = const 2
+}
+
+func wrong_variant(s: Shape) -> f64 {
+  r: f64 = copy s.Rect.w
+  return copy r
+}
+
+func unit_result() -> i64 {
+  return const 1
+}
+
+func discard() {
+  call unit_result()
+}
+
+func redeclare() {
+  x: i64 = const 1
+  local x: bool
+}
+
+func lie() -> Never {
+  return
+}
+
+func lend_then_read(a: i64 mut, b: i64) { }
+
+; одолжить, потом прочитать — нельзя: на время вызова значения на месте нет
+func left_to_right_bad() {
+  x: i64 = const 1
+  call lend_then_read(borrow mut x, copy x)
+}
+
+func read_mut(x: i64) {
+  call takes_mut(borrow mut x)
+}
+
+func flip(d: Dir mut) {
+  d = make Dir.Right(const 0)
+}
+
+; вызов поменял вариант: значение прежнего варианта брать нельзя
+func stale_after_call() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  switch d {
+    case Left {
+      call flip(borrow mut d)
+      r: i64 = copy d.Left.0
+      return copy r
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+; запись в конце прохода меняет вариант к началу следующего
+func stale_in_loop() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  i: i64 = const 0
+  switch d {
+    case Left {
+      loop L [held: d, i] {
+        v: i64 = copy d.Left.0
+        d = make Dir.Right(copy v)
+        i = add.i64(copy i, const 1)
+        c: bool = ge.i64(copy i, const 2)
+        if c {
+          break L
+        } else { } [held: d, i]
+      } [held: d, i]
+    }
+    case Right { }
+  } [held: d, i]
+  return copy i
+}
+
+; номер элемента изменился: известен вариант другого элемента
+func stale_index() -> i64 {
+  d0: Dir = make Dir.Left(const 1)
+  d1: Dir = make Dir.Right(const 2)
+  a: Array[Dir, 2] = array(copy d0, copy d1)
+  i: i64 = const 0
+  switch a[i] {
+    case Left {
+      i = const 1
+      r: i64 = copy a[i].Left.0
+      return copy r
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+; запись в элемент с неизвестным номером может переписать выбранный
+func stale_element() -> i64 {
+  d0: Dir = make Dir.Left(const 1)
+  a: Array[Dir, 2] = array(copy d0, copy d0)
+  i: i64 = const 0
+  j: i64 = const 0
+  switch a[i] {
+    case Left {
+      a[j] = make Dir.Right(const 2)
+      r: i64 = copy a[i].Left.0
+      return copy r
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+func set_right(d: Dir mut) -> i64 {
+  d = make Dir.Right(const 0)
+  return const 7
+}
+
+; правая часть поменяла вариант места, куда идёт запись
+func stale_target() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  switch d {
+    case Left {
+      d.Left.0 = call set_right(borrow mut d)
+      return const 1
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+func reads(i: i64 mut, x: i64) { }
+
+; номер элемента одолжен для изменения раньше, чем прочитан
+func lent_index() {
+  a: Array[i64, 2] = array(const 1, const 2)
+  i: i64 = const 0
+  call reads(borrow mut i, copy a[i])
+}
+
+; запись на одной из веток: после слияния вариант неизвестен
+func stale_after_branch(flag: bool) -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  switch d {
+    case Left {
+      if flag {
+        d = make Dir.Right(const 0)
+      } else { } [held: d]
+      r: i64 = copy d.Left.0
+      return copy r
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+; то же через ветку вложенного switch
+func stale_after_inner_switch(n: i64) -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  switch d {
+    case Left {
+      switch n {
+        case 0 {
+          d = make Dir.Right(const 0)
+        }
+        else { }
+      } [held: d]
+      r: i64 = copy d.Left.0
+      return copy r
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+; запись во вложенном цикле меняет вариант к следующему проходу внешнего
+func stale_in_outer_loop() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  i: i64 = const 0
+  switch d {
+    case Left {
+      loop L [held: d, i] {
+        v: i64 = copy d.Left.0
+        loop M [held: d, i] {
+          d = make Dir.Right(copy v)
+          break M
+        } [held: d, i]
+        i = add.i64(copy i, const 1)
+        c: bool = ge.i64(copy i, const 2)
+        if c {
+          break L
+        } else { } [held: d, i]
+      } [held: d, i]
+    }
+    case Right { }
+  } [held: d, i]
+  return copy i
+}
+
+; определение заново: прежний вариант неизвестен
+func stale_after_define() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  switch d {
+    case Left {
+      d: Dir = make Dir.Right(const 0)
+      r: i64 = copy d.Left.0
+      return copy r
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+func index_empty(xs: Array[i64, 2]) -> i64 {
+  local i: i64
+  v: i64 = copy xs[i]
+  return copy v
+}
+
+func make_pair() -> Pair {
+  a: Token = make Token(id: const 1)
+  b: Token = make Token(id: const 2)
+  p: Pair = make Pair(a: move a, b: move b)
+  return move p
+}
+
+func look2(p: Pair mut, t: Token) { }
+
+func borrow_after_lend() {
+  p: Pair = call make_pair()
+  call look2(borrow mut p, borrow p.a)
+  drop p
+}
+
+func look_t(t: Token) { }
+
+func borrow_empty() {
+  local t: Token
+  call look_t(borrow t)
+}
+
+func lend_empty() {
+  local x: i64
+  call takes_mut(borrow mut x)
+}
+
+func keep(a: Token mut, p: Pair take) {
+  drop p
+}
+
+func move_while_lent() {
+  p: Pair = call make_pair()
+  call keep(borrow mut p.a, move p)
+}
+
+func drop_twice() {
+  t: Token = make Token(id: const 1)
+  drop t
+  drop t
+}
+
+func if_empty() {
+  local c: bool
+  if c { } else { } [held:]
+}
+
+func return_leak() {
+  t: Token = make Token(id: const 1)
+  return
+}
+
+func write_empty_array() {
+  local xs: Array[i64, 2]
+  xs[0] = const 1
+}
+
+func write_into_empty() {
+  local p: Pair
+  p.a = make Token(id: const 1)
+  drop p
+}
+
+func move_mut_part(p: Pair mut) {
+  a: Token = move p.a
+  drop a
+}
+
+func switch_empty() -> i64 {
+  local d: Dir
+  switch d {
+    case Left {
+      return const 1
+    }
+    case Right {
+      return const 2
+    }
+  }
+}
+
+func if_not_bool(n: i64) {
+  if n { } else { } [held:]
+}
+
+func return_wrong_type() -> i64 {
+  return const true
+}
+
+func call_result_type() {
+  x: bool = call unit_result()
+}
+
+func make_wrong_type() {
+  t: Pair = make Token(id: const 1)
+  drop t
+}
+
+func make_missing_field() {
+  a: Token = make Token(id: const 1)
+  p: Pair = make Pair(a: move a)
+  drop p
+}
+
+func array_length() {
+  xs: Array[i64, 3] = array(const 1, const 2)
+}
+
+func conv_operand_type(x: i64) -> i64 {
+  r: i64 = conv.i32.i64(copy x)
+  return copy r
+}
+
+; вызов в теле цикла меняет вариант к следующему проходу
+func stale_lent_in_loop() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  i: i64 = const 0
+  switch d {
+    case Left {
+      loop L [held: d, i] {
+        v: i64 = copy d.Left.0
+        call flip(borrow mut d)
+        i = add.i64(copy i, const 1)
+        c: bool = ge.i64(copy i, const 2)
+        if c {
+          break L
+        } else { } [held: d, i]
+      } [held: d, i]
+    }
+    case Right { }
+  } [held: d, i]
+  return copy i
+}
+
+; использование после перемещения
+func move_twice() {
+  t: Token = make Token(id: const 1)
+  u: Token = move t
+  v: Token = move t
+  drop u
+  drop v
+}
+
+; объявление заново, пока в переменной непростое значение
+func redeclare_owned() {
+  t: Token = make Token(id: const 1)
+  local t: Token
+}

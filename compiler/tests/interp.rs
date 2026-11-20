@@ -4,7 +4,7 @@
 //! для типов шире — случайные пары и крайние значения. Преобразования сверяются с независимыми
 //! расчётами: целое — через `TryFrom`, дробное в целое — через десятичную запись, целое в
 //! дробное — через соседние значения. Остальное — программы на IR, написанные вручную, и
-//! пример из `spec/ir-core.md`.
+//! пример из `spec/ir-core.md`. Программы лежат в `tests/ir/`: их же проверяет тест проверщика.
 
 use nulixc::interp::{self, eval_conv, eval_op, Limits, Stop, Value};
 use nulixc::ir::*;
@@ -934,88 +934,7 @@ fn the_gcd_example_from_the_spec_runs() {
     }
 }
 
-const FLOW: &str = r##"ir 1
-
-func count_even(n: i64) -> i64 {
-  c: i64 = const 0
-  i: i64 = const 0
-  loop L [held: c, i] {
-    t0: bool = ge.i64(copy i, copy n)
-    if t0 {
-      break L
-    } else { } [held: c, i]
-    i = add.i64(copy i, const 1)
-    t1: i64 = rem.i64(copy i, const 2)
-    t2: bool = ne.i64(copy t1, const 0)
-    if t2 {
-      continue L
-    } else { } [held: c, i]
-    c = add.i64(copy c, const 1)
-  } [held: c, i]
-  return copy c
-}
-
-; наименьшая пара i, j от 1 до limit с i * j = target; ответ — i * 100 + j, иначе -1
-func first_product(target: i64, limit: i64) -> i64 {
-  i: i64 = const 0
-  r: i64 = const -1
-  loop Outer [held: i, r] {
-    i = add.i64(copy i, const 1)
-    t0: bool = gt.i64(copy i, copy limit)
-    if t0 {
-      break Outer
-    } else { } [held: i, r]
-    j: i64 = const 0
-    loop Inner [held: i, r, j] {
-      j = add.i64(copy j, const 1)
-      t1: bool = gt.i64(copy j, copy limit)
-      if t1 {
-        continue Outer
-      } else { } [held: i, r, j]
-      t2: i64 = mul.i64(copy i, copy j)
-      t3: bool = eq.i64(copy t2, copy target)
-      if t3 {
-        t4: i64 = mul.i64(copy i, const 100)
-        r = add.i64(copy t4, copy j)
-        break Outer
-      } else { } [held: i, r, j]
-    }
-  } [held: i, r]
-  return copy r
-}
-
-func classify(c: char) -> i64 {
-  switch c {
-    case 'a' {
-      return const 1
-    }
-    case 'я' {
-      return const 2
-    }
-    else {
-      return const 0
-    }
-  }
-}
-
-func sign(x: i32) -> i32 {
-  switch x {
-    case 0 {
-      return const 0
-    }
-    else { }
-  } [held:]
-  t: bool = lt.i32(copy x, const 0)
-  switch t {
-    case true {
-      return const -1
-    }
-    case false {
-      return const 1
-    }
-  }
-}
-"##;
+const FLOW: &str = include_str!("ir/flow.ir");
 
 #[test]
 fn branches_and_loops() {
@@ -1039,171 +958,7 @@ fn branches_and_loops() {
     assert_eq!(call(&m, "sign", vec![i32v(i32::MAX)]), Ok(i32v(1)));
 }
 
-const DATA: &str = r##"ir 1
-
-struct Token { id: i64 }
-
-struct Pair { a: Token, b: Token }
-
-copy struct Point { x: f64, y: f64 }
-
-enum Shape { Circle(f64), Rect(w: f64, h: f64), Dot }
-
-func area(s: Shape) -> f64 {
-  switch s {
-    case Circle {
-      r: f64 = copy s.Circle.0
-      t: f64 = mul.f64(copy r, copy r)
-      return copy t
-    }
-    case Rect {
-      t2: f64 = mul.f64(copy s.Rect.w, copy s.Rect.h)
-      return copy t2
-    }
-    case Dot {
-      return const 0.0
-    }
-  }
-}
-
-func areas() -> f64 {
-  a: Shape = make Shape.Circle(const 2.0)
-  b: Shape = make Shape.Rect(w: const 3.0, h: const 0.5)
-  c: Shape = make Shape.Dot
-  x: f64 = call area(borrow a)
-  y: f64 = call area(borrow b)
-  z: f64 = call area(borrow c)
-  drop a
-  drop b
-  drop c
-  s: f64 = add.f64(copy x, copy y)
-  s = add.f64(copy s, copy z)
-  return copy s
-}
-
-func pair(x: i64, y: i64) -> Pair {
-  ta: Token = make Token(id: copy x)
-  tb: Token = make Token(id: copy y)
-  p: Pair = make Pair(b: move tb, a: move ta)
-  return move p
-}
-
-func take_a(p: Pair take) -> i64 {
-  a: Token = move p.a
-  t: i64 = copy a.id
-  drop a
-  drop p
-  return copy t
-}
-
-func refill(p: Pair take) -> Pair {
-  a: Token = move p.a
-  drop a
-  p.a = make Token(id: const 7)
-  return move p
-}
-
-func swap_ids(p: Pair mut) {
-  t: i64 = copy p.a.id
-  p.a.id = copy p.b.id
-  p.b.id = copy t
-}
-
-func use_swap() -> i64 {
-  p: Pair = call pair(const 1, const 2)
-  call swap_ids(borrow mut p)
-  r: i64 = copy p.a.id
-  drop p
-  return copy r
-}
-
-func use_take() -> i64 {
-  p: Pair = call pair(const 3, const 4)
-  r: i64 = call take_a(move p)
-  return copy r
-}
-
-func use_refill() -> i64 {
-  p: Pair = call pair(const 3, const 4)
-  q: Pair = call refill(move p)
-  t1: i64 = copy q.a.id
-  t2: i64 = copy q.b.id
-  drop q
-  t3: i64 = mul.i64(copy t1, const 10)
-  r: i64 = add.i64(copy t3, copy t2)
-  return copy r
-}
-
-func bump(n: i64 take) -> i64 {
-  n = add.i64(copy n, const 1)
-  return copy n
-}
-
-func use_bump() -> i64 {
-  x: i64 = const 5
-  y: i64 = call bump(copy x)
-  r: i64 = add.i64(copy x, copy y)
-  return copy r
-}
-
-func mirror(p: Point) -> Point {
-  t: f64 = neg.f64(copy p.x)
-  q: Point = make Point(x: copy t, y: copy p.y)
-  return copy q
-}
-
-func fill(buf: Array[i64, 4] mut, v: i64) {
-  i: i64 = const 0
-  loop L [held: i] {
-    t: bool = lt.i64(copy i, const 4)
-    if t { } else {
-      break L
-    } [held: i]
-    buf[i] = copy v
-    i = add.i64(copy i, const 1)
-  } [held: i]
-}
-
-func sum4(xs: Array[i64, 4]) -> i64 {
-  s: i64 = add.i64(copy xs[0], copy xs[1])
-  s = add.i64(copy s, copy xs[2])
-  s = add.i64(copy s, copy xs[3])
-  return copy s
-}
-
-func fill_sum() -> i64 {
-  a: Array[i64, 4] = array(const 1, const 2, const 3, const 4)
-  s0: i64 = call sum4(copy a)
-  call fill(borrow mut a, const 5)
-  s1: i64 = call sum4(copy a)
-  t: i64 = mul.i64(copy s0, const 100)
-  r: i64 = add.i64(copy t, copy s1)
-  return copy r
-}
-
-func at(xs: Array[i64, 4], i: i64) -> i64 {
-  v: i64 = copy xs[i]
-  return copy v
-}
-
-func grid() -> i64 {
-  r0: Array[i64, 2] = array(const 1, const 2)
-  r1: Array[i64, 2] = array(const 3, const 4)
-  g: Array[Array[i64, 2], 2] = array(copy r0, copy r1)
-  g[1][0] = const 30
-  t0: i64 = copy g[1][0]
-  t1: i64 = copy r1[0]
-  r: i64 = add.i64(copy t0, copy t1)
-  return copy r
-}
-
-func tuples() -> char {
-  inner: (bool, char) = tuple(const true, const 'x')
-  t: (i64, (bool, char)) = tuple(const 5, copy inner)
-  c: char = copy t.1.1
-  return copy c
-}
-"##;
+const DATA: &str = include_str!("ir/data.ir");
 
 #[test]
 fn records_variants_arrays_and_parameter_modes() {
@@ -1226,6 +981,46 @@ fn records_variants_arrays_and_parameter_modes() {
     assert_eq!(call(&m, "fill_sum", vec![]), Ok(i64v(1020)));
     assert_eq!(call(&m, "grid", vec![]), Ok(i64v(33)));
     assert_eq!(call(&m, "tuples", vec![]), Ok(Value::Char('x')));
+    assert_eq!(call(&m, "carry", vec![i64v(4)]), Ok(i64v(6)));
+    assert_eq!(call(&m, "carry", vec![i64v(0)]), Ok(i64v(0)));
+    assert_eq!(call(&m, "split", vec![Value::Bool(true)]), Ok(i64v(2)));
+    assert_eq!(call(&m, "split", vec![Value::Bool(false)]), Ok(i64v(2)));
+    assert_eq!(call(&m, "use_unwrap", vec![i64v(5)]), Ok(i64v(-5)));
+    let rect = Value::Enum(
+        "Shape".to_string(),
+        1,
+        vec![Some(Value::F64(2.5)), Some(Value::F64(1.0))],
+    );
+    let dot = Value::Enum("Shape".to_string(), 2, vec![]);
+    assert_eq!(
+        call(&m, "sum_width", vec![rect, i64v(3)]),
+        Ok(Value::F64(7.5))
+    );
+    assert_eq!(
+        call(&m, "sum_width", vec![dot, i64v(3)]),
+        Ok(Value::F64(0.0))
+    );
+    assert_eq!(call(&m, "swap_ends", vec![]), Ok(i64v(31)));
+    let left = |n: i64| Value::Enum("Dir".to_string(), 0, vec![Some(i64v(n))]);
+    let right = Value::Enum("Dir".to_string(), 1, vec![Some(i64v(1))]);
+    assert_eq!(
+        call(&m, "turn", vec![left(5), Value::Bool(false)]),
+        Ok(i64v(5))
+    );
+    assert_eq!(
+        call(&m, "turn", vec![left(5), Value::Bool(true)]),
+        Ok(i64v(-1))
+    );
+    assert_eq!(
+        call(&m, "turn", vec![right.clone(), Value::Bool(false)]),
+        Ok(i64v(0))
+    );
+    assert_eq!(call(&m, "turn_by", vec![right, i64v(0)]), Ok(i64v(0)));
+    assert_eq!(call(&m, "use_rebuild", vec![]), Ok(i64v(21)));
+    assert_eq!(call(&m, "turn_by", vec![left(5), i64v(0)]), Ok(i64v(-1)));
+    assert_eq!(call(&m, "turn_by", vec![left(5), i64v(1)]), Ok(i64v(5)));
+    assert_eq!(call(&m, "turn_by", vec![left(5), i64v(2)]), Ok(i64v(-2)));
+    assert_eq!(call(&m, "turn_by", vec![left(5), i64v(3)]), Ok(i64v(5)));
     let xs = Value::Array((1..=4).map(|n| Some(i64v(n))).collect());
     assert_eq!(call(&m, "at", vec![xs.clone(), i64v(3)]), Ok(i64v(4)));
     crash_with(
@@ -1235,59 +1030,7 @@ fn records_variants_arrays_and_parameter_modes() {
     crash_with(call(&m, "at", vec![xs, i64v(-1)]), "индекс -1");
 }
 
-const ORDER: &str = r##"ir 1
-
-func boom() -> i64 {
-  crash "правая часть"
-}
-
-func rhs_first() {
-  a: Array[i64, 2] = array(const 0, const 0)
-  i: i64 = const 5
-  a[i] = call boom()
-}
-
-func bounds_at_write() {
-  a: Array[i64, 2] = array(const 0, const 0)
-  i: i64 = const 5
-  a[i] = const 1
-}
-
-func set_one(i: i64 mut) -> i64 {
-  i = const 1
-  return const 9
-}
-
-; номер элемента читается до правой части: запись идёт в a[0], хотя вызов сделал i = 1
-func index_before_rhs() -> i64 {
-  a: Array[i64, 2] = array(const 0, const 0)
-  i: i64 = const 0
-  a[i] = call set_one(borrow mut i)
-  t0: i64 = copy a[0]
-  t1: i64 = copy a[1]
-  t2: i64 = mul.i64(copy i, const 100)
-  t3: i64 = mul.i64(copy t1, const 10)
-  t4: i64 = add.i64(copy t0, copy t2)
-  r: i64 = add.i64(copy t4, copy t3)
-  return copy r
-}
-
-func read_then_lend(b: i64, a: i64 mut) { }
-
-func lend_then_read(a: i64 mut, b: i64) { }
-
-; аргументы слева направо: прочитать, потом одолжить — можно
-func left_to_right_ok() {
-  x: i64 = const 1
-  call read_then_lend(copy x, borrow mut x)
-}
-
-; одолжить, потом прочитать — нельзя: на время вызова значения на месте нет
-func left_to_right_bad() {
-  x: i64 = const 1
-  call lend_then_read(borrow mut x, copy x)
-}
-"##;
+const ORDER: &str = include_str!("ir/order.ir");
 
 #[test]
 fn evaluation_order() {
@@ -1299,77 +1042,25 @@ fn evaluation_order() {
     );
     assert_eq!(call(&m, "index_before_rhs", vec![]), Ok(i64v(109)));
     assert_eq!(call(&m, "left_to_right_ok", vec![]), Ok(Value::Unit));
-    invalid_with(call(&m, "left_to_right_bad", vec![]), "нет значения");
 }
 
-const RUNNER: &str = r##"ir 1
+const RUNNER: &str = include_str!("ir/runner.ir");
 
-enum Never { }
-
-func forever() {
-  loop L [held:] { }
-}
-
-func down(n: i64) -> i64 {
-  m: i64 = add.i64(copy n, const 1)
-  r: i64 = call down(copy m)
-  return copy r
-}
-
-func depth(n: i64) -> i64 {
-  t: bool = eq.i64(copy n, const 0)
-  if t {
-    return const 0
-  } else { }
-  m: i64 = sub.i64(copy n, const 1)
-  r: i64 = call depth(copy m)
-  return copy r
-}
-
-func fail() -> Never {
-  crash "отказ"
-}
-
+/// Тест, который вызывает неверную функцию: останавливается только он. В `runner.ir` его нет:
+/// этот файл проверщик принимает целиком.
+const RUNNER_BAD: &str = "
 func lie() -> Never {
   return
 }
 
-test "проходит" { }
-
-test "авария" {
-  crash "бах"
-}
-
-test "бюджет" {
-  call forever()
-}
-
-test "стек" {
-  t: i64 = call down(const 0)
-}
-
-test "never" {
-  call fail()
-}
-
-test "never возвращается" {
+test \"never возвращается\" {
   call lie()
 }
-
-test "три шага" {
-  a: i64 = const 1
-  b: i64 = const 2
-  c: i64 = const 3
-}
-
-test "после" {
-  t: i64 = call depth(const 10)
-}
-"##;
+";
 
 #[test]
 fn tests_run_one_by_one_within_limits() {
-    let m = module(RUNNER);
+    let m = module(&format!("{}{}", RUNNER, RUNNER_BAD));
     let limits = Limits {
         steps: 10_000,
         depth: 50,
@@ -1384,9 +1075,9 @@ fn tests_run_one_by_one_within_limits() {
             "бюджет",
             "стек",
             "never",
-            "never возвращается",
             "три шага",
-            "после"
+            "после",
+            "never возвращается"
         ]
     );
     assert_eq!(results[0].stop, None);
@@ -1399,15 +1090,15 @@ fn tests_run_one_by_one_within_limits() {
         ))
     );
     assert_eq!(results[4].stop, Some(Stop::Crash("отказ".to_string())));
-    assert!(
-        matches!(&results[5].stop, Some(Stop::InvalidIr(m)) if m.contains("return без значения"))
-    );
+    assert_eq!(results[5].stop, None);
     assert_eq!(results[6].stop, None);
-    assert_eq!(results[7].stop, None);
+    assert!(
+        matches!(&results[7].stop, Some(Stop::InvalidIr(m)) if m.contains("return без значения"))
+    );
     // три инструкции — три шага
     let exact = |steps| {
         let r = interp::run_tests(&m, Limits { steps, depth: 50 }).expect("модуль исполняется");
-        r[6].stop.clone()
+        r[5].stop.clone()
     };
     assert_eq!(exact(3), None);
     assert_eq!(exact(2), Some(Stop::OutOfSteps));
@@ -1419,140 +1110,24 @@ fn tests_run_one_by_one_within_limits() {
     );
 }
 
-const INVALID: &str = r##"ir 1
+const INVALID: &str = include_str!("ir/invalid.ir");
 
-struct Token { id: i64 }
-
-enum Shape { Circle(f64), Rect(w: f64, h: f64), Dot }
-
-func read_empty() -> i64 {
-  local x: i64
-  r: i64 = copy x
-  return copy r
+/// Вызовы функций с параметром `mut`: снаружи их не вызвать. В `invalid.ir` таких вызовов нет:
+/// там каждая функция — отдельный случай для проверщика или помощник.
+const INVALID_CALLERS: &str = "
+func call_move_mut_part() {
+  p: Pair = call make_pair()
+  call move_mut_part(borrow mut p)
+  drop p
 }
-
-func copy_owned() {
-  t: Token = make Token(id: const 1)
-  u: Token = copy t
-  drop t
-  drop u
-}
-
-func overwrite() {
-  t: Token = make Token(id: const 1)
-  t = make Token(id: const 2)
-  drop t
-}
-
-func leak() {
-  t: Token = make Token(id: const 1)
-}
-
-; осталась только простая часть — отдавать нечего
-func half_ok() {
-  tk: Token = make Token(id: const 1)
-  t: (i64, Token) = tuple(const 1, move tk)
-  u: Token = move t.1
-  drop u
-}
-
-; осталась непростая часть — значение не отдано
-func half_leak() {
-  t1: Token = make Token(id: const 1)
-  t2: Token = make Token(id: const 2)
-  p: (Token, Token) = tuple(move t1, move t2)
-  u: Token = move p.0
-  drop u
-}
-
-func no_return() -> i64 {
-  x: i64 = const 1
-}
-
-func bare_return() -> i64 {
-  return
-}
-
-func no_case(x: i64) -> i64 {
-  switch x {
-    case 1 {
-      return const 1
-    }
-  }
-}
-
-func bad_label() {
-  break Nowhere
-}
-
-func big_const() -> u8 {
-  return const 300
-}
-
-func f32_inexact() -> f32 {
-  return const 0.1
-}
-
-func f32_exact() -> f32 {
-  return const 0.10000000149011612
-}
-
-func borrow_value() {
-  x: i64 = const 1
-  y: i64 = borrow x
-}
-
-func unknown() {
-  call nobody()
-}
-
-func takes_mut(x: i64 mut) { }
-
-func arity() {
-  call takes_mut()
-}
-
-func wrong_mode() {
-  x: i64 = const 1
-  call takes_mut(borrow x)
-}
-
-func drop_param(t: Token) {
-  drop t
-}
-
-func move_param(t: Token) -> Token {
-  return move t
-}
-
-func write_param(x: i64) {
-  x = const 2
-}
-
-func wrong_variant(s: Shape) -> f64 {
-  r: f64 = copy s.Rect.w
-  return copy r
-}
-
-func unit_result() -> i64 {
-  return const 1
-}
-
-func discard() {
-  call unit_result()
-}
-
-func redeclare() {
-  x: i64 = const 1
-  local x: bool
-}
-"##;
+";
 
 #[test]
 fn invalid_ir_stops_with_a_reason() {
-    let m = module(INVALID);
+    let m = module(&format!("{}{}", INVALID, INVALID_CALLERS));
     let token = Value::Struct("Token".to_string(), vec![Some(i64v(1))]);
     let circle = Value::Enum("Shape".to_string(), 0, vec![Some(Value::F64(1.0))]);
+    let xs2 = Value::Array(vec![Some(i64v(1)), Some(i64v(2))]);
     let cases: Vec<(&str, Vec<Value>, &str)> = vec![
         ("read_empty", vec![], "нет значения"),
         ("copy_owned", vec![], "не простой"),
@@ -1575,6 +1150,69 @@ fn invalid_ir_stops_with_a_reason() {
         ("wrong_variant", vec![circle], "другой вариант"),
         ("discard", vec![], "не используется"),
         ("redeclare", vec![], "объявлена с типом i64"),
+        ("lie", vec![], "return без значения"),
+        ("left_to_right_bad", vec![], "нет значения"),
+        ("read_mut", vec![i64v(1)], "параметр для чтения"),
+        ("stale_after_call", vec![], "другой вариант"),
+        ("stale_in_loop", vec![], "другой вариант"),
+        ("stale_index", vec![], "другой вариант"),
+        ("stale_element", vec![], "другой вариант"),
+        ("stale_target", vec![], "другой вариант"),
+        ("lent_index", vec![], "не переменная i64 со значением"),
+        (
+            "stale_after_branch",
+            vec![Value::Bool(true)],
+            "другой вариант",
+        ),
+        ("stale_after_inner_switch", vec![i64v(0)], "другой вариант"),
+        ("stale_in_outer_loop", vec![], "другой вариант"),
+        ("stale_after_define", vec![], "другой вариант"),
+        (
+            "index_empty",
+            vec![xs2.clone()],
+            "не переменная i64 со значением",
+        ),
+        ("borrow_after_lend", vec![], "нет значения"),
+        ("borrow_empty", vec![], "нет значения"),
+        ("lend_empty", vec![], "нет значения"),
+        ("move_while_lent", vec![], "часть значения перемещена"),
+        ("drop_twice", vec![], "drop t: значения нет"),
+        ("if_empty", vec![], "нет значения"),
+        (
+            "return_leak",
+            vec![],
+            "значение в t не отдано и не уничтожено",
+        ),
+        ("write_empty_array", vec![], "на пути к xs[0] нет значения"),
+        ("write_into_empty", vec![], "на пути к p.a нет значения"),
+        (
+            "call_move_mut_part",
+            vec![],
+            "параметр p функции не принадлежит",
+        ),
+        ("switch_empty", vec![], "нет значения"),
+        ("if_not_bool", vec![i64v(1)], "не bool"),
+        (
+            "return_wrong_type",
+            vec![],
+            "константа не подходит к типу i64",
+        ),
+        ("call_result_type", vec![], "не подходит к типу bool"),
+        ("make_wrong_type", vec![], "не подходит к типу Pair"),
+        ("make_missing_field", vec![], "указаны не все поля"),
+        (
+            "array_length",
+            vec![],
+            "массив не подходит к типу Array[i64, 3]",
+        ),
+        ("conv_operand_type", vec![i64v(1)], "не подходит к типу i32"),
+        ("stale_lent_in_loop", vec![], "другой вариант"),
+        ("move_twice", vec![], "в t нет значения"),
+        (
+            "redeclare_owned",
+            vec![],
+            "в t ещё есть значение: сначала drop",
+        ),
     ];
     for (func, args, fragment) in cases {
         invalid_with(call(&m, func, args), fragment);
@@ -1582,6 +1220,15 @@ fn invalid_ir_stops_with_a_reason() {
     assert_eq!(call(&m, "f32_exact", vec![]), Ok(Value::F32(0.1)));
     assert_eq!(call(&m, "half_ok", vec![]), Ok(Value::Unit));
     assert_eq!(call(&m, "no_case", vec![i64v(1)]), Ok(i64v(1)));
+    // на другой ветке вариант не меняется: исполнение законно, отвергает только проверщик
+    assert_eq!(
+        call(&m, "stale_after_branch", vec![Value::Bool(false)]),
+        Ok(i64v(5))
+    );
+    assert_eq!(
+        call(&m, "stale_after_inner_switch", vec![i64v(1)]),
+        Ok(i64v(5))
+    );
 }
 
 #[test]

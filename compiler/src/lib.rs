@@ -15,3 +15,4 @@ pub mod lexer;
 pub mod parser;
 pub mod stack;
 pub mod token;
+pub mod verify;
