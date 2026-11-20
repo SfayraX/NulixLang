@@ -1,0 +1,44 @@
+ir 1
+
+func boom() -> i64 {
+  crash "правая часть"
+}
+
+func rhs_first() {
+  a: Array[i64, 2] = array(const 0, const 0)
+  i: i64 = const 5
+  a[i] = call boom()
+}
+
+func bounds_at_write() {
+  a: Array[i64, 2] = array(const 0, const 0)
+  i: i64 = const 5
+  a[i] = const 1
+}
+
+func set_one(i: i64 mut) -> i64 {
+  i = const 1
+  return const 9
+}
+
+; номер элемента читается до правой части: запись идёт в a[0], хотя вызов сделал i = 1
+func index_before_rhs() -> i64 {
+  a: Array[i64, 2] = array(const 0, const 0)
+  i: i64 = const 0
+  a[i] = call set_one(borrow mut i)
+  t0: i64 = copy a[0]
+  t1: i64 = copy a[1]
+  t2: i64 = mul.i64(copy i, const 100)
+  t3: i64 = mul.i64(copy t1, const 10)
+  t4: i64 = add.i64(copy t0, copy t2)
+  r: i64 = add.i64(copy t4, copy t3)
+  return copy r
+}
+
+func read_then_lend(b: i64, a: i64 mut) { }
+
+; аргументы слева направо: прочитать, потом одолжить — можно
+func left_to_right_ok() {
+  x: i64 = const 1
+  call read_then_lend(copy x, borrow mut x)
+}

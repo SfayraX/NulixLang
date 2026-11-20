@@ -1,0 +1,414 @@
+ir 1
+
+; Неверный IR, который видно при проверке. Интерпретатор многие из этих функций исполняет без
+; ошибки: правила здесь — для проверщика. Каждая функция, названная в `tests/verify.rs`, —
+; отдельный случай; остальные функции — помощники, правильные сами по себе.
+
+struct Token { id: i64 }
+
+struct Pair { a: Token, b: Token }
+
+enum Opt { No, Yes(Token) }
+
+enum Two { Both(a: Token, b: Token), Neither }
+
+enum Never { }
+
+func stop() -> Never {
+  crash "стоп"
+}
+
+func pair() -> Pair {
+  a: Token = make Token(id: const 1)
+  b: Token = make Token(id: const 2)
+  p: Pair = make Pair(a: move a, b: move b)
+  return move p
+}
+
+func look(t: Token, p: Pair mut) { }
+
+func both(a: Token mut, b: Token mut) { }
+
+func swap(a: i64 mut, b: i64 mut) { }
+
+; ── недостижимое ──
+
+func dead_after_return() {
+  return
+  crash "никогда"
+}
+
+func dead_after_never() {
+  call stop()
+  return
+}
+
+func dead_after_loop() {
+  loop L [held:] { }
+  return
+}
+
+func never_as_value() {
+  x: Never = call stop()
+}
+
+; ── записанные состояния ──
+
+func if_without_after(flag: bool) {
+  if flag { } else { }
+}
+
+func if_with_extra_after(flag: bool) {
+  if flag {
+    return
+  } else {
+    return
+  } [held:]
+}
+
+func loop_without_after() {
+  loop L [held:] {
+    break L
+  }
+}
+
+func loop_with_extra_after() {
+  loop L [held:] { } [held:]
+}
+
+func after_names_moved(flag: bool) {
+  t: Token = make Token(id: const 1)
+  if flag {
+    drop t
+  } else { } [held: t]
+  drop t
+}
+
+func after_forgets_owned(flag: bool) {
+  t: Token = make Token(id: const 1)
+  if flag {
+    drop t
+  } else { } [held:]
+}
+
+func after_names_partial(flag: bool) {
+  p: Pair = call pair()
+  a: Token = move p.a
+  drop a
+  if flag { } else { } [held: p]
+  drop p
+}
+
+func after_names_param(x: i64, flag: bool) {
+  if flag { } else { } [held: x]
+}
+
+func after_twice(flag: bool) {
+  i: i64 = const 0
+  if flag { } else { } [held: i, i]
+}
+
+func after_overlaps(flag: bool) {
+  p: Pair = call pair()
+  if flag { } else { } [held: p, p.a]
+  drop p
+}
+
+func after_all_parts(flag: bool) {
+  p: Pair = call pair()
+  if flag { } else { } [held: p.a, p.b]
+  drop p
+}
+
+func after_names_payload(o: Opt take) {
+  switch o {
+    case Yes { }
+    case No { }
+  } [held: o.Yes.0]
+  drop o
+}
+
+func after_names_element(flag: bool) {
+  xs: Array[i64, 2] = array(const 1, const 2)
+  if flag { } else { } [held: xs[0]]
+}
+
+func after_names_unknown(flag: bool) {
+  if flag { } else { } [held: nobody]
+}
+
+func loop_entry_mismatch() {
+  local t: Token
+  loop L [held: t] {
+    drop t
+    return
+  }
+}
+
+func continue_mismatch() {
+  loop L [held:] {
+    t: Token = make Token(id: const 1)
+    continue L
+  }
+}
+
+func loop_end_mismatch() {
+  loop L [held:] {
+    t: Token = make Token(id: const 1)
+  }
+}
+
+func break_mismatch() {
+  t: Token = make Token(id: const 1)
+  loop L [held: t] {
+    drop t
+    break L
+  } [held: t]
+  drop t
+}
+
+; часть значения варианта забрана, непростая часть осталась к концу ветки
+func payload_left_in_branch(x: Two take) {
+  switch x {
+    case Both {
+      a: Token = move x.Both.a
+      drop a
+    }
+    case Neither {
+      drop x
+    }
+  } [held:]
+}
+
+; ── switch ──
+
+func else_unreachable(o: Opt) -> i64 {
+  switch o {
+    case Yes {
+      return const 1
+    }
+    case No {
+      return const 0
+    }
+    else {
+      return const 2
+    }
+  }
+}
+
+func bool_else_unreachable(b: bool) -> i64 {
+  switch b {
+    case true {
+      return const 1
+    }
+    case false {
+      return const 0
+    }
+    else {
+      return const 2
+    }
+  }
+}
+
+func case_twice(n: i64) -> i64 {
+  switch n {
+    case 1 {
+      return const 1
+    }
+    case 1 {
+      return const 2
+    }
+    else {
+      return const 0
+    }
+  }
+}
+
+func switch_on_float(x: f64) {
+  switch x {
+    else { }
+  } [held:]
+}
+
+func wrong_label(n: i64) {
+  switch n {
+    case 'a' { }
+    else { }
+  } [held:]
+}
+
+func label_out_of_range(n: u8) {
+  switch n {
+    case 300 { }
+    else { }
+  } [held:]
+}
+
+; ── циклы ──
+
+func same_label_nested() {
+  loop L [held:] {
+    loop L [held:] {
+      break L
+    } [held:]
+    break L
+  } [held:]
+}
+
+; ── заимствования в одном вызове ──
+
+func read_part_then_lend_whole() {
+  p: Pair = call pair()
+  call look(borrow p.a, borrow mut p)
+  drop p
+}
+
+func lend_same_twice() {
+  p: Pair = call pair()
+  call both(borrow mut p.a, borrow mut p.a)
+  drop p
+}
+
+func lend_unknown_elements(i: i64) {
+  xs: Array[i64, 3] = array(const 1, const 2, const 3)
+  call swap(borrow mut xs[0], borrow mut xs[i])
+}
+
+func lend_same_element() {
+  xs: Array[i64, 3] = array(const 1, const 2, const 3)
+  call swap(borrow mut xs[1], borrow mut xs[1])
+}
+
+; ── массивы ──
+
+func move_element() {
+  t0: Token = make Token(id: const 1)
+  t1: Token = make Token(id: const 2)
+  xs: Array[Token, 2] = array(move t0, move t1)
+  t: Token = move xs[0]
+  drop t
+  drop xs
+}
+
+func drop_element() {
+  t0: Token = make Token(id: const 1)
+  t1: Token = make Token(id: const 2)
+  xs: Array[Token, 2] = array(move t0, move t1)
+  drop xs[0]
+  drop xs
+}
+
+func replace_element() {
+  t0: Token = make Token(id: const 1)
+  t1: Token = make Token(id: const 2)
+  xs: Array[Token, 2] = array(move t0, move t1)
+  xs[0] = make Token(id: const 3)
+  drop xs
+}
+
+func replace_mut_part(p: Pair mut) {
+  p.a = make Token(id: const 3)
+}
+
+func index_not_i64(xs: Array[i64, 2], k: i32) -> i64 {
+  v: i64 = copy xs[k]
+  return copy v
+}
+
+; ── варианты ──
+
+; место переписано тем же вариантом, но проверщик за значениями не следит
+func payload_after_rewrite(o: Opt take) -> i64 {
+  switch o {
+    case Yes {
+      drop o
+      t: Token = make Token(id: const 2)
+      o = make Opt.Yes(move t)
+      r: i64 = copy o.Yes.0.id
+      drop o
+      return copy r
+    }
+    case No {
+      drop o
+      return const 0
+    }
+  }
+}
+
+; вариант известен только внутри ветки
+func payload_after_switch(o: Opt) -> i64 {
+  switch o {
+    case No { }
+    case Yes { }
+  } [held:]
+  r: i64 = copy o.Yes.0.id
+  return copy r
+}
+
+func payload_in_other_case(o: Opt) -> i64 {
+  switch o {
+    case Yes {
+      return const 1
+    }
+    case No {
+      r: i64 = copy o.Yes.0.id
+      return copy r
+    }
+  }
+}
+
+; ── типы и операции ──
+
+func op_missing() -> u8 {
+  x: u8 = const 1
+  y: u8 = neg.u8(copy x)
+  return copy y
+}
+
+func bool_ordered(a: bool, b: bool) -> bool {
+  r: bool = lt.bool(copy a, copy b)
+  return copy r
+}
+
+func char_arithmetic(c: char) -> char {
+  r: char = add.char(copy c, copy c)
+  return copy r
+}
+
+func operand_type(f: f64) -> i64 {
+  r: i64 = add.i64(copy f, const 1)
+  return copy r
+}
+
+func result_type(a: i64) -> bool {
+  r: bool = add.i64(copy a, const 1)
+  return copy r
+}
+
+func shift_by_float(x: i64, f: f64) -> i64 {
+  r: i64 = shl.i64(copy x, copy f)
+  return copy r
+}
+
+func conv_bool(b: bool) -> i64 {
+  r: i64 = conv.bool.i64(copy b)
+  return copy r
+}
+
+func conv_char_float(c: char) -> f64 {
+  r: f64 = conv.char.f64(copy c)
+  return copy r
+}
+
+func const_kind() -> bool {
+  r: bool = const 1
+  return copy r
+}
+
+func redeclare_param(x: i64) {
+  local x: i64
+}
+
+func tuple_shape() {
+  t: (i64, bool) = tuple(const 1, const true, const 2)
+}
