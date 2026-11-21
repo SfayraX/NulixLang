@@ -2,7 +2,7 @@
 
 1. Строит LALR(1)-разборщик в строгом режиме: любой конфликт — ошибка.
 2. Разбирает фрагменты из спецификации (grammar/fragments.tsv).
-3. Проверяет, что каждый фрагмент раздела «Синтаксис» учтён.
+3. Проверяет, что каждый фрагмент раздела «Синтаксис» учтён (список — grammar/spans.tsv, его создаёт spans.py).
 4. Разбирает тестовые программы (grammar/samples/*.nx) и отрицательные примеры (grammar/negative.tsv).
 Запуск: python3 check.py <папка grammar> [-v]
 """
@@ -56,15 +56,19 @@ print(f"фрагменты спецификации: разобрано {len(tab
 for orig, start, text, err in bad:
     print(f"  НЕ РАЗОБРАН [{start}] {orig!r} как {text!r}: {err}")
 
-# ── 3. полнота: все фрагменты раздела «Синтаксис» (строки 354–486 экспорта) ──
+# ── 3. полнота: все фрагменты раздела 12 «Синтаксис» по списку grammar/spans.tsv ──
+SYNTAX = "12"   # номер раздела «Синтаксис» в spec/nulix.md; номера разделов не меняются
 lexer = nxlex.NxLexer.__new__(nxlex.NxLexer)
 lexer.lit = {t.pattern.value: t.name for t in parser.terminals if t.pattern is not None}
 lexer.words = set(words)
 lexer.ops = sorted((v for v in lexer.lit if not v[0].isalpha() and v[0] not in "@_"), key=len, reverse=True)
 seen, single, missing = set(), {}, []
 for ln in open(os.path.join(G, "spans.tsv"), encoding="utf-8"):
-    num, frag = ln.rstrip("\n").split("\t", 1)
-    if not (354 <= int(num) <= 486) or frag in seen:
+    ln = ln.rstrip("\n")
+    if not ln or ln.startswith("#"):
+        continue
+    place, frag = ln.split("\t", 1)
+    if place.split(".")[0] != SYNTAX or frag in seen:
         continue
     seen.add(frag)
     if frag in table or frag in skip:

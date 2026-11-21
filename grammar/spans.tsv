@@ -1,615 +1,793 @@
-159	media.camera()
-178	ui
-178	view
-178	update
-178	mut
-178	Shared
-178	match
-178	ui.run
-178	func(M) -> View[Msg] uses heap
-179	ui.Each
-179	Eq and Hash
-179	ui.Input
-179	on_change
-180	update
-180	ui.Task[Msg]
-180	ui.Task[Msg, uses (net, suspend)]
-180	ui.run
-180	update
-181	ui.Button
-181	ui.IconButton
-181	name
-224	Lost
-236	Result[(), any Error]
-239	without crash
-318	dom
-318	net
-318	media
-332	modules.load[Editor](url)
-332	any Editor
-349	@gpu(vertex)
-349	@gpu(fragment)
-349	@gpu(compute)
-349	any
-349	any func
-349	func(…)
-350	any
-351	@gpu(compute)
-351	mut
-351	@gpu
-363	and
-363	or
-363	not
-363	try
-363	case
-363	end
-363	mut
-363	take
-367	{
-368	;
-369	nulix fmt
-370	} end имя
-370	impl
-370	end impl Router
-370	end impl Iterator for Segments
-370	end for
-370	end if
-370	end match
-372	//
-372	/* … */
-372	///
-377	let
-377	var
-377	let
-377	const
-378	let
-378	Atomic
-378	var
-378	trust
-378	const
-379	x: i64
-380	func имя(параметры) -> Результат { … }
-380	return
-381	func max[T: Ord](a: T, b: T) -> T
-381	Pair[i64, Str]
-381	max[i64](a, b)
-382	type Имя = Тип
-382	struct
-382	type Handler[uses E] = any func(Request) -> Response uses E
-383	test "имя" { … }
-383	pub
-383	nulix test
-387	class
-388	struct
-388	enum
-389	Num(i64)
-389	Some(T)
-389	indirect
-390	interface
-390	impl Интерфейс for Тип { … }
-390	impl Тип { … }
-390	self
-391	interface Error: Display
-391	and
-391	[T: Eq and Hash]
-392	impl Add for Vec2
-392	and
-392	or
-392	not
-393	impl Eq for Cell {}
-393	Eq
-393	Hash
-393	Debug
-393	Ord
-393	From
-394	impl Copy for Vec2 {}
-394	pub
-394	Drop
-395	any Shape
-395	any
-396	func(…)
-396	[T]
-396	any func(…)
-396	any Shape
-396	extern "C" func
-397	impl Drop for T { func drop(mut self) }
-397	take self
-397	discard self
-398	Display
-398	$x
-398	print
-398	Debug
-398	assert
-398	Debug
-398	Display
-399	Str
-399	func show[uses E](self, mut out: TextOut[uses E]) uses E
-399	TextOut
-399	[uses E without suspend]
-399	await
-400	impl
-400	impl[T] List[T]
-400	impl[uses E] Router[uses E]
-400	impl List[i32]
-401	Rect(w: 2.0, h: 3.0)
-402	List[T].new()
-402	Set[T].from(items)
-402	Array[u32, 256].filled(0)
-403	gap: f32 = 0.0
-404	Array[T, N]
-404	[a, b, c]
-405	Str
-405	Bytes
-406	Str
-406	graphemes()
-410	if
-410	else if
-410	if
-410	match
-411	match значение { case образец { … } else { … } }
-412	case Bin(op, left, right)
-412	_
-412	..
-413	case '-', '−'
-413	|
-413	or
-413	case Div if b == 0
-414	значение is образец
-414	if
-414	while
-414	if r is Ok(v) { … }
-415	for x in xs
-415	while условие
-415	loop
-415	outer: for …
-415	break outer
-415	return
-415	break
-415	continue
-416	0..<10
-416	0..=10
-417	try
-417	catch { … }
-417	catch err { … }
-418	try
-418	Result
-418	From
-418	assert условие
-418	assert условие, "пояснение"
-419	await
-419	try await
-420	func(p) { … }
-421	$name
-421	${выражение}
-421	\$
-422	Str
-422	print
-423	and
-423	or
-423	not
-423	&
-423	|
-423	^
-423	~
-423	<<
-423	>>
-424	+=
-424	-=
-424	++
-424	--
-425	0x
-425	0b
-425	0o
-425	_
-425	"…"
-425	"""…"""
-425	'a'
-426	u8(x)
-426	Option
-426	without crash
-430	mut
-430	take
-430	self
-431	mut
-431	sort(mut data)
-431	take
-432	take
-432	var
-433	for x in xs
-433	for x in mut xs
-433	for x in take xs
-433	Set
-434	match x
-434	x is …
-434	match mut x
-434	match take x
-434	for
-435	func(…)
-435	mut func(…)
-435	take func(…)
-435	any func(Event) -> …
-435	take handler
-435	mut func
-435	take func
-435	take func
-435	s.spawn
-435	task.race
-435	task.timeout
-435	task.shield
-435	task.scope
-435	take func
-435	take
-435	s.spawn
-435	take f: take func()
-436	ref T
-436	mut ref T
-436	-> ref(xs) T
-436	struct Segments[life s]
-436	rest: ref(s) Str
-436	-> Segments[life path]
-436	[life (a, b)]
-436	life
-437	Shared[T]
-437	Weak[T]
-437	Arena
-437	Atomic[T]
-441	@
-441	@high
-441	@system
-441	@low
-441	@naked
-441	@prototype
-441	@develop
-441	@production
-441	@strict
-442	@system
-442	@low
-442	@naked
-442	@low { … }
-443	@file(production)
-443	@develop
-445	@gpu(vertex)
-445	@gpu(fragment)
-445	@gpu(compute)
-449	uses
-449	block
-449	suspend
-449	crash
-449	state
-449	without
-449	limit
-449	limit stack <= 4096
-449	func(T) -> U uses net
-449	uses (net, fs)
-449	without (heap, block, crash)
-449	()
-450	[T, U, uses E]
-450	struct Router[uses E]
-450	Router[uses fs]
-450	await
-450	suspend
-450	func(Str) -> T uses E without suspend
-451	target { case возможность { … } else { … } }
-451	else
-451	target
-452	x86.crc32_u8
-452	case
-453	provide fs = disk { … }
-453	provide (fs = disk, net = fake)
-454	crash
-454	without crash
-454	state
-454	mut
-458	trust "обоснование" { … }
-458	if
-458	match
-459	uses trust
-459	trust
-459	uses trust
-459	trust
-460	extern "C" trust "обоснование" { … }
-460	uses trust
-460	@link("z")
-460	c
-460	c.int
-460	c.long
-460	c.size_t
-460	c.void
-461	extern "C" func имя() { … }
-461	extern "C" func()
-462	c.CString(s)
-462	Str.from_c(p)
-462	Str.from_c_lossy(p)
-463	ptr T
-463	mut ptr T
-463	is_null()
-463	read()
-463	write()
-463	trust
-463	p.поле
-463	cast[T]()
-463	size_of[T]()
-463	trust
-464	@layout(c)
-464	@align(N)
-464	@packed
-464	@offset(N)
-464	@section("имя")
-465	@naked
-465	asm(…) { … }
-465	trust
-470	@file(…)
-471	import net.tcp
-471	tcp.connect
-471	import text.json.{parse, Value}
-471	as
-472	import task.{Signal}
-472	task.race
-472	import task
-473	Option
-473	Result
-473	Some
-473	None
-473	Ok
-473	Err
-473	print
-473	Ordering.Relaxed
-474	Drop
-474	Copy
-474	From
-474	Error
-474	Display
-474	Debug
-474	Eq
-474	Ord
-474	Hash
-474	Iterator
-474	List
-474	import
-475	Str
-475	Bytes
-475	Str
-475	TextOut
-475	Display
-475	Debug
-475	size_of
-475	align_of
-476	pub
-476	pub
-476	pub
-476	internal
-477	func main()
-478	let
-478	var
-478	let
-480	_
-483	extern
-484	snake_case
-484	PascalCase
-484	UPPER_CASE
-523	[T, U, uses E]
-525	any
-525	any func
-525	dyn Trait + Send + Sync
-525	func(…)
-533	ui
-535	@typeInfo
-546	[life s]
-548	Shared
-548	Weak
-548	Arena
-548	Atomic
-548	MemFs
-548	TextOut
-548	expect_crash
-548	task.race
-548	task.timeout
-548	task.shield
-548	task.checkpoint
-548	clock
-549	List.sort_by
-549	total_cmp
-549	Array[T, N].filled
-549	task.scope_limited
-549	c
-549	c.CString
-549	testing
-549	expect_crash
-550	dom
-550	media
-550	storage
-550	modules
-550	modules.load
-550	task.background
-551	gpu
-551	math
-551	Vec2
-551	Color
-551	gpu.Position
-551	dom.next_frame
-551	device.run
-552	ui
-552	ui.View
-552	ui.run
-552	Column
-552	Row
-552	Input
-552	Button
-552	IconButton
-552	Check
-552	Text
-552	Each
-552	ui.Task
-552	ui.task
-552	ui.none
-552	ui.Icon.Close
-552	count
-552	map
-552	retain
-552	graphemes
-553	Clone
-553	x.clone()
-554	task.scope_limited(1000, f)
-555	ui.lazy
-555	Eq
-555	ui.lazy
-600	#![no_std]
-600	#[global_allocator]
-645	;
-646	end
-647	global
-647	nonlocal
-647	::<>
-647	var _ I = (*T)(nil)
-647	if
-647	[T]
-647	impl
-648	1..10
-648	&
-648	==
-648	++
-648	--
-648	try
-648	await
-648	try
-648	catch
-648	$name
-648	try
-648	catch
-648	await
-648	$
-649	&
-649	map
-649	unsafe extern
-649	safe
-649	unsafe
-649	unsafe
-649	unsafe fn
-649	// SAFETY:
-649	naked_asm!
-649	mut
-649	take
-649	uses
-649	without
-649	trust
-649	@naked
-650	internal
-650	*
-650	pub
-656	AtomicU32::fetch_add
-656	Array
-656	Set
-656	link_section
-656	fn
-656	@convention(c)
-656	extern "x86-interrupt"
-656	unsafe
-656	let
-656	var
-656	@section
-656	extern "C" func
-656	type
-656	trust
-657	Option
-657	Result
-657	impl
-657	impl<T> Any for T
-657	ref[a, b] String
-657	origin_of(…)
-657	map
-657	rethrows
-657	try
-657	impl
-657	[life s]
-657	await
-658	std.json
-658	@typeInfo
-658	TaskGroup
-658	main
-658	Err
-658	print
-658	print
-659	c_long
-659	i64
-659	i32
-659	CString::new
-659	to_string_lossy
-659	link
-659	extern
-659	extern "C"
-659	crc32
-659	unsigned long
-659	uInt
-659	getenv
-659	Str
-659	@link
-659	extern "C"
-665	_
-665	..
-667	#[from]
-667	%w
-668	__str__
-668	repr
-676	//go:build
-677	impl Trait
-677	func(…)
-677	any func
-679	size_of
-679	align_of
-679	size_of
-679	align_of
-681	for x in v
-681	for x in list
-681	for ref x
-681	list^
-682	new
-683	std::pmr
-683	set_default_resource
-684	&self
-684	&mut self
-684	self
-690	getUserMedia
-693	import()
-693	provides
-693	uses
-693	modules.load
-694	Box<dyn Fn(i32) -> i32>
-694	func
-694	mut func
-694	take func
-704	createShaderModule
-704	@gpu(…)
-705	vec3
-705	repr(C)
-706	@vertex
-706	@fragment
-706	@compute
-706	@workgroup_size
-706	workgroupBarrier
-706	-stdpar=gpu
-706	@gpu(compute)
-707	abort()
-709	requestAdapter()
-709	Lost
-715	view(&self)
-715	update(&mut self, message)
-715	ui
-716	default_field_values
-717	length
-717	Intl.Segmenter
-717	count
-717	graphemes()
-717	Str
-718	Html.Keyed
-718	keyed_column
-718	Preedit
-718	Commit
-718	compositionstart
-718	ui.Each
-718	ui.Input
-719	update : Msg -> Model -> (Model, Cmd Msg)
-719	update(&mut self, message) -> Task<Message>
-719	Task
-720	ui
-721	memo
-721	Object.is
+# место фрагмента: пункт, раздел (текст вне пунктов) или «-» (шапка) <TAB> фрагмент; файл создаёт tools/grammar/spans.py из spec/nulix.md
+-	tools/spec/numbers.py
+7.31	media.camera()
+8.7	ui
+8.7	view
+8.7	update
+8.7	mut
+8.7	Shared
+8.7	match
+8.7	ui.run
+8.7	func(M) -> View[Msg] uses heap
+8.8	ui.Each
+8.8	Eq and Hash
+8.8	ui.Input
+8.8	on_change
+8.9	update
+8.9	ui.Task[Msg]
+8.9	ui.Task[Msg, uses (net, suspend)]
+8.9	ui.run
+8.9	update
+8.10	ui.Button
+8.10	ui.IconButton
+8.10	name
+9.12	/
+9.12	%
+9.12	MIN / -1
+9.12	MIN % -1
+9.13	u32
+9.13	>>
+9.17	f32
+9.17	f64
+9.17	f64
+9.17	f32
+9.17	f32
+9.18	bool
+9.18	==
+9.18	!=
+9.20	0/0
+9.20	%
+9.20	fmod
+9.27	Rect(w: …, h: …)
+9.28	a[i] = f()
+9.28	a
+9.28	i
+9.28	f()
+9.29	and
+9.29	or
+9.29	if
+9.29	match
+9.30	try
+9.30	catch
+9.31	provide
+9.31	provide
+9.32	let
+9.36	Never
+9.36	return
+9.36	break
+9.36	continue
+9.36	loop
+9.36	break
+9.36	Never
+9.36	-> Never
+9.38	s.spawn
+9.38	task.race
+9.38	task.timeout
+9.38	task.shield
+9.38	task.scope
+9.42	task.shield(f)
+9.42	f
+9.43	task.with_cleanup(work, cleanup)
+9.43	cleanup
+9.43	work
+9.43	Drop
+9.44	task.timeout
+9.46	Lost
+9.55	Result[(), any Error]
+9.58	limit stack <= N
+9.58	limit stack
+9.58	extern … trust …
+9.59	without crash
+11.6	if
+11.6	switch
+11.6	loop
+11.6	break
+11.6	continue
+11.6	return
+11.10	match
+11.10	is
+11.10	switch
+11.10	try
+11.10	switch
+11.10	From
+11.10	return
+11.10	catch
+11.10	for
+11.10	and
+11.10	or
+11.10	await
+11.10	provide
+11.10	trust
+11.10	target
+11.12	struct
+11.16	if
+11.16	switch
+11.16	loop
+11.16	return
+11.16	suspend
+11.16	any
+11.16	provide
+11.16	target
+11.16	raw
+11.16	trust
+11.16	extern
+11.16	asm
+11.16	gpu
+11.17	Result
+11.17	try
+11.22	dom
+11.22	net
+11.22	media
+11.30	modules.load[Editor](url)
+11.30	any Editor
+11.44	@gpu(vertex)
+11.44	@gpu(fragment)
+11.44	@gpu(compute)
+11.44	any
+11.44	any func
+11.44	func(…)
+11.45	any
+11.46	@gpu(compute)
+11.46	mut
+11.46	@gpu
+12.4	and
+12.4	or
+12.4	not
+12.4	try
+12.4	case
+12.4	end
+12.4	mut
+12.4	take
+12.5	{
+12.6	;
+12.7	nulix fmt
+12.8	} end имя
+12.8	impl
+12.8	end impl Router
+12.8	end impl Iterator for Segments
+12.8	end for
+12.8	end if
+12.8	end match
+12.10	//
+12.10	/* … */
+12.10	///
+12.12	let
+12.12	var
+12.12	let
+12.12	const
+12.13	let
+12.13	Atomic
+12.13	var
+12.13	trust
+12.13	const
+12.14	x: i64
+12.15	func имя(параметры) -> Результат { … }
+12.15	return
+12.16	func max[T: Ord](a: T, b: T) -> T
+12.16	Pair[i64, Str]
+12.16	max[i64](a, b)
+12.17	type Имя = Тип
+12.17	struct
+12.17	type Handler[uses E] = any func(Request) -> Response uses E
+12.18	test "имя" { … }
+12.18	pub
+12.18	nulix test
+12.19	i8
+12.19	i16
+12.19	i32
+12.19	i64
+12.19	u8
+12.19	u16
+12.19	u32
+12.19	u64
+12.19	f32
+12.19	f64
+12.19	bool
+12.19	char
+12.19	i64
+12.19	raw
+12.20	class
+12.21	struct
+12.21	enum
+12.22	Num(i64)
+12.22	Some(T)
+12.22	indirect
+12.23	interface
+12.23	impl Интерфейс for Тип { … }
+12.23	impl Тип { … }
+12.23	self
+12.24	interface Error: Display
+12.24	and
+12.24	[T: Eq and Hash]
+12.25	impl Add for Vec2
+12.25	and
+12.25	or
+12.25	not
+12.26	impl Eq for Cell {}
+12.26	Eq
+12.26	Hash
+12.26	Debug
+12.26	Ord
+12.26	From
+12.27	impl Copy for Vec2 {}
+12.27	pub
+12.27	Drop
+12.28	any Shape
+12.28	any
+12.29	func(…)
+12.29	[T]
+12.29	any func(…)
+12.29	any Shape
+12.29	extern "C" func
+12.30	impl Drop for T { func drop(mut self) }
+12.30	take self
+12.30	discard self
+12.31	Display
+12.31	$x
+12.31	print
+12.31	Debug
+12.31	assert
+12.31	Debug
+12.31	Display
+12.32	Str
+12.32	func show[uses E](self, mut out: TextOut[uses E]) uses E
+12.32	TextOut
+12.32	[uses E without suspend]
+12.32	await
+12.33	impl
+12.33	impl[T] List[T]
+12.33	impl[uses E] Router[uses E]
+12.33	impl List[i32]
+12.34	Rect(w: 2.0, h: 3.0)
+12.35	List[T].new()
+12.35	Set[T].from(items)
+12.35	Array[u32, 256].filled(0)
+12.36	gap: f32 = 0.0
+12.37	Array[T, N]
+12.37	[a, b, c]
+12.38	Str
+12.38	Bytes
+12.39	Str
+12.39	graphemes()
+12.40	if
+12.40	else if
+12.40	if
+12.40	match
+12.41	match значение { case образец { … } else { … } }
+12.42	case Bin(op, left, right)
+12.42	_
+12.42	..
+12.43	case '-', '−'
+12.43	|
+12.43	or
+12.43	case Div if b == 0
+12.44	значение is образец
+12.44	if
+12.44	while
+12.44	if r is Ok(v) { … }
+12.45	for x in xs
+12.45	while условие
+12.45	loop
+12.45	outer: for …
+12.45	break outer
+12.45	return
+12.45	break
+12.45	continue
+12.46	0..<10
+12.46	0..=10
+12.47	try
+12.47	catch { … }
+12.47	catch err { … }
+12.48	try
+12.48	Result
+12.48	From
+12.48	assert условие
+12.48	assert условие, "пояснение"
+12.49	await
+12.49	try await
+12.50	func(p) { … }
+12.51	$name
+12.51	${выражение}
+12.51	\$
+12.52	Str
+12.52	print
+12.53	and
+12.53	or
+12.53	not
+12.53	&
+12.53	|
+12.53	^
+12.53	~
+12.53	<<
+12.53	>>
+12.54	+=
+12.54	-=
+12.54	++
+12.54	--
+12.55	0x
+12.55	0b
+12.55	0o
+12.55	_
+12.55	"…"
+12.55	"""…"""
+12.55	'a'
+12.56	i64
+12.56	f64
+12.57	u8(x)
+12.57	Option
+12.57	without crash
+12.58	mut
+12.58	take
+12.58	self
+12.59	mut
+12.59	sort(mut data)
+12.59	take
+12.60	take
+12.60	var
+12.61	for x in xs
+12.61	for x in mut xs
+12.61	for x in take xs
+12.61	Set
+12.62	match x
+12.62	x is …
+12.62	match mut x
+12.62	match take x
+12.62	for
+12.63	func(…)
+12.63	mut func(…)
+12.63	take func(…)
+12.63	any func(Event) -> …
+12.63	take handler
+12.63	mut func
+12.63	take func
+12.63	take func
+12.63	s.spawn
+12.63	task.race
+12.63	task.timeout
+12.63	task.shield
+12.63	task.scope
+12.63	take func
+12.63	take
+12.63	s.spawn
+12.63	take f: take func()
+12.64	ref T
+12.64	mut ref T
+12.64	-> ref(xs) T
+12.64	struct Segments[life s]
+12.64	rest: ref(s) Str
+12.64	-> Segments[life path]
+12.64	[life (a, b)]
+12.64	life
+12.65	Shared[T]
+12.65	Weak[T]
+12.65	Arena
+12.65	Atomic[T]
+12.66	@
+12.66	@high
+12.66	@system
+12.66	@low
+12.66	@naked
+12.66	@prototype
+12.66	@develop
+12.66	@production
+12.66	@strict
+12.67	@system
+12.67	@low
+12.67	@naked
+12.67	@low { … }
+12.68	@file(production)
+12.68	@develop
+12.70	@gpu(vertex)
+12.70	@gpu(fragment)
+12.70	@gpu(compute)
+12.71	uses
+12.71	block
+12.71	suspend
+12.71	crash
+12.71	state
+12.71	without
+12.71	limit
+12.71	limit stack <= 4096
+12.71	func(T) -> U uses net
+12.71	uses (net, fs)
+12.71	without (heap, block, crash)
+12.71	()
+12.72	[T, U, uses E]
+12.72	struct Router[uses E]
+12.72	Router[uses fs]
+12.72	await
+12.72	suspend
+12.72	func(Str) -> T uses E without suspend
+12.73	target { case возможность { … } else { … } }
+12.73	else
+12.73	target
+12.74	x86.crc32_u8
+12.74	case
+12.75	provide fs = disk { … }
+12.75	provide (fs = disk, net = fake)
+12.76	crash
+12.76	without crash
+12.76	state
+12.76	mut
+12.77	trust "обоснование" { … }
+12.77	if
+12.77	match
+12.78	uses trust
+12.78	trust
+12.78	uses trust
+12.78	trust
+12.79	extern "C" trust "обоснование" { … }
+12.79	uses trust
+12.79	@link("z")
+12.79	c
+12.79	c.int
+12.79	c.long
+12.79	c.size_t
+12.79	c.void
+12.80	extern "C" func имя() { … }
+12.80	extern "C" func()
+12.81	c.CString(s)
+12.81	Str.from_c(p)
+12.81	Str.from_c_lossy(p)
+12.82	ptr T
+12.82	mut ptr T
+12.82	is_null()
+12.82	read()
+12.82	write()
+12.82	trust
+12.82	p.поле
+12.82	cast[T]()
+12.82	size_of[T]()
+12.82	trust
+12.83	@layout(c)
+12.83	@align(N)
+12.83	@packed
+12.83	@offset(N)
+12.83	@section("имя")
+12.84	@naked
+12.84	asm(…) { … }
+12.84	trust
+12.86	@file(…)
+12.87	import net.tcp
+12.87	tcp.connect
+12.87	import text.json.{parse, Value}
+12.87	as
+12.88	import task.{Signal}
+12.88	task.race
+12.88	import task
+12.89	Option
+12.89	Result
+12.89	Some
+12.89	None
+12.89	Ok
+12.89	Err
+12.89	print
+12.89	Ordering.Relaxed
+12.90	Drop
+12.90	Copy
+12.90	From
+12.90	Error
+12.90	Display
+12.90	Debug
+12.90	Eq
+12.90	Ord
+12.90	Hash
+12.90	Iterator
+12.90	List
+12.90	import
+12.91	Str
+12.91	Bytes
+12.91	Str
+12.91	TextOut
+12.91	Display
+12.91	Debug
+12.91	size_of
+12.91	align_of
+12.92	pub
+12.92	pub
+12.92	pub
+12.92	internal
+12.93	let x = x + 1
+12.93	var
+12.94	func main()
+12.95	let
+12.95	var
+12.95	let
+12.97	_
+12.100	extern
+12.101	snake_case
+12.101	PascalCase
+12.101	UPPER_CASE
+13.5	and
+13.5	or
+13.5	&
+13.5	|
+13.5	^
+13.5	a & mask == 0
+13.5	(a & mask) == 0
+13.6	try
+13.6	await
+13.6	try f() + try g()
+13.6	catch
+13.6	try
+13.6	await
+13.6	x + f() catch { 0 }
+13.6	x + (f() catch { 0 })
+13.7	func
+13.7	any
+13.7	take
+13.7	match
+13.7	end func
+13.7	end
+13.7	test
+13.7	type
+13.7	discard
+13.7	life
+13.7	end
+13.7	}
+13.7	test
+13.7	end
+13.7	type
+13.7	discard
+13.7	self
+13.7	life
+13.7	[
+13.7	self
+13.7	(
+13.7	test
+13.7	end
+13.7	func test() { … } end test
+13.7	end func
+13.7	test
+13.7	life
+13.8	and
+13.8	any
+13.8	as
+13.8	assert
+13.8	await
+13.8	break
+13.8	case
+13.8	catch
+13.8	const
+13.8	continue
+13.8	discard
+13.8	else
+13.8	end
+13.8	enum
+13.8	extern
+13.8	false
+13.8	for
+13.8	func
+13.8	if
+13.8	impl
+13.8	import
+13.8	in
+13.8	indirect
+13.8	interface
+13.8	is
+13.8	let
+13.8	life
+13.8	limit
+13.8	loop
+13.8	match
+13.8	mut
+13.8	not
+13.8	or
+13.8	provide
+13.8	ptr
+13.8	pub
+13.8	ref
+13.8	return
+13.8	self
+13.8	struct
+13.8	take
+13.8	target
+13.8	test
+13.8	true
+13.8	trust
+13.8	try
+13.8	type
+13.8	uses
+13.8	var
+13.8	while
+13.8	without
+13.9	true
+13.9	false
+13.10	(A, B)
+13.10	(a, b)
+13.10	(x, y)
+13.10	let (a, b) = …
+13.10	for (k, v) in …
+13.11	left: Num(n)
+13.11	_
+13.12	func(mut model: Model, msg: Msg)
+13.13	end while
+13.13	end loop
+13.13	end case
+13.13	end else
+13.13	end catch
+13.13	end func
+13.13	end test
+13.13	end trust
+13.13	end provide
+13.13	end target
+13.13	end extern
+13.13	end @low
+13.13	if
+13.13	else
+13.14	)
+13.14	]
+13.14	}
+13.14	_
+13.14	return
+13.14	break
+13.14	continue
+13.14	self
+13.14	true
+13.14	false
+13.14	any
+13.14	trust
+13.14	end
+13.14	(
+13.14	[
+13.15	+ - * / %
+13.15	== != < <= > >=
+13.15	+= -= *= /= %= &= |= ^= <<= >>=
+13.16	2.5
+13.16	1e9
+13.16	2.5e-3
+13.16	\n \t \r \0 \\ \" \' \$ \u{…}
+13.16	$имя
+13.17	uses
+13.17	without
+13.17	limit
+13.17	-> (func(B) -> C) uses net
+13.18	pub
+13.18	pub
+13.18	indirect
+13.18	uses
+13.18	without
+13.18	limit
+13.18	@file(production, target(имя))
+13.18	self
+13.18	ref(self) T
+13.18	;
+13	(
+13	[
+13	{
+13	not
+13	-
+13	~
+13	try
+13	await
+13	ref
+13	ptr
+13	mut
+13	->
+13	if
+13	match
+13	while
+13	for … in
+13	provide имя =
+13	limit имя <=
+13	case
+13	${…}
+13	a + b + c
+13	x.f().g()
+13	else if
+13	f(x)
+13	a[i]
+13	a.b
+13	-
+13	~
+13	try
+13	await
+13	catch { … }
+13	catch err { … }
+13	*
+13	/
+13	%
+13	+
+13	-
+13	<<
+13	>>
+13	&
+13	^
+13	..<
+13	..=
+13	==
+13	!=
+13	<
+13	<=
+13	>
+13	>=
+13	is
+13	not
+13	and
+13	or
+16.2	any
+16.2	any func
+16.2	dyn Trait + Send + Sync
+16.2	func(…)
+16.6	@typeInfo
+16.18	Shared
+16.18	Weak
+16.18	Arena
+16.18	Atomic
+16.18	MemFs
+16.18	TextOut
+16.18	expect_crash
+16.18	task.race
+16.18	task.timeout
+16.18	task.shield
+16.18	task.checkpoint
+16.18	clock
+16.19	List.sort_by
+16.19	total_cmp
+16.19	Array[T, N].filled
+16.19	task.scope_limited
+16.19	c
+16.19	c.CString
+16.19	testing
+16.19	expect_crash
+16.20	dom
+16.20	media
+16.20	storage
+16.20	modules
+16.20	modules.load
+16.20	task.background
+16.21	gpu
+16.21	math
+16.21	Vec2
+16.21	Color
+16.21	gpu.Position
+16.21	dom.next_frame
+16.21	device.run
+16.22	ui
+16.22	ui.View
+16.22	ui.run
+16.22	Column
+16.22	Row
+16.22	Input
+16.22	Button
+16.22	IconButton
+16.22	Check
+16.22	Text
+16.22	Each
+16.22	ui.Task
+16.22	ui.task
+16.22	ui.none
+16.22	ui.Icon.Close
+16.22	count
+16.22	map
+16.22	retain
+16.22	graphemes
+16.23	Clone
+16.23	x.clone()
+16.24	ui.lazy
+16.24	Eq
+16.24	ui.lazy
+16.34	main
+16.34	await
+16.35	Str
+16.35	catch err
+16.35	match take
+16.35	const
+16.35	@naked
+16.35	provide
+16.35	let
+16.37	N
+16.37	Array[T, N]
+16.37	let
+16.37	break
+16.38	end имя
+16.38	func match() { … } end match
+16.38	end
+16.39	impl Интерфейс for Тип
+16.40	move
+16.41	without crash
+16.41	xs.get(0)
+17.5	[T, U, uses E]
+17.11	ui
+17.12	[life s]
+17.13	task.scope_limited(1000, f)

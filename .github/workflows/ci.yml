@@ -57,6 +57,7 @@ jobs:
         run: python3 tools/grammar/check.py grammar
       - name: Эталоны собираются заново без изменений
         run: |
+          python3 tools/grammar/spans.py spec/nulix.md grammar/spans.tsv
           python3 tools/grammar/dump_tokens.py grammar > grammar/tokens.golden.tsv
           python3 tools/grammar/dump_trees.py grammar > grammar/trees.golden.tsv
           python3 tools/grammar/fuzz.py grammar 3000 1 --max-tokens 150 > grammar/fuzz.golden.tsv

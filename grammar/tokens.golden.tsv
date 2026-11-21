@@ -165,69 +165,70 @@ frag:163	0	import text.json.{parse, Value}	OK	kw:import	NAME:text	kw:.	NAME:json
 frag:164	0	import task.{Signal}	OK	kw:import	NAME:task	kw:.	kw:{	NAME:Signal	kw:}
 frag:165	0	import task	OK	kw:import	NAME:task
 frag:166	0	Ordering.Relaxed	OK	NAME:Ordering	kw:.	NAME:Relaxed
-frag:167	0	func main() { }	OK	kw:func	NAME:main	kw:(	kw:)	kw:{	kw:}
-frag:168	0	media.camera()	OK	NAME:media	kw:.	NAME:camera	kw:(	kw:)
-frag:169	0	func(M) -> View[Msg] uses heap	OK	kw:func	kw:(	NAME:M	kw:)	kw:->	NAME:View	kw:[	NAME:Msg	kw:]	kw:uses	NAME:heap
-frag:170	0	ui.Task[Msg]	OK	NAME:ui	kw:.	NAME:Task	kw:[	NAME:Msg	kw:]
-frag:171	0	ui.Task[Msg, uses (net, suspend)]	OK	NAME:ui	kw:.	NAME:Task	kw:[	NAME:Msg	kw:,	kw:uses	kw:(	NAME:net	kw:,	NAME:suspend	kw:)	kw:]
-frag:172	0	Result[(), any Error]	OK	NAME:Result	kw:[	kw:(	kw:)	kw:,	kw:any	NAME:Error	kw:]
-frag:173	0	modules.load[Editor](url)	OK	NAME:modules	kw:.	NAME:load	kw:[	NAME:Editor	kw:]	kw:(	NAME:url	kw:)
-frag:174	0	any Editor	OK	kw:any	NAME:Editor
-frag:175	0	[life s]	OK	kw:[	kw:life	NAME:s	kw:]
-frag:176	0	Array[T, N].filled	OK	NAME:Array	kw:[	NAME:T	kw:,	NAME:N	kw:]	kw:.	NAME:filled
-frag:177	0	task.scope_limited(1000, f)	OK	NAME:task	kw:.	NAME:scope_limited	kw:(	INT:1000	kw:,	NAME:f	kw:)
-frag:178	0	x.clone()	OK	NAME:x	kw:.	NAME:clone	kw:(	kw:)
-frag:179	0	ui.Icon.Close	OK	NAME:ui	kw:.	NAME:Icon	kw:.	NAME:Close
-frag:180	0	Eq and Hash	OK	NAME:Eq	kw:and	NAME:Hash
-frag:181	0	for x in v { }	OK	kw:for	NAME:x	kw:in	NAME:v	kw:{	kw:}
-frag:182	0	Router[uses (net, suspend, heap)]	OK	NAME:Router	kw:[	kw:uses	kw:(	NAME:net	kw:,	NAME:suspend	kw:,	NAME:heap	kw:)	kw:]
-frag:183	0	@file(production, target(lm3s6965))	OK	kw:@file	kw:(	NAME:production	kw:,	kw:target	kw:(	NAME:lm3s6965	kw:)	kw:)
-frag:184	0	xs.any(f)	OK	NAME:xs	kw:.	NAME:any	kw:(	NAME:f	kw:)
-frag:185	0	xs.take(3)	OK	NAME:xs	kw:.	NAME:take	kw:(	INT:3	kw:)
-frag:186	0	re.match(s)	OK	NAME:re	kw:.	NAME:match	kw:(	NAME:s	kw:)
-frag:187	0	e.target()	OK	NAME:e	kw:.	NAME:target	kw:(	kw:)
-frag:188	0	tok.type	OK	NAME:tok	kw:.	NAME:type
-frag:189	0	let end = start + len	OK	kw:let	NAME:end	kw:=	NAME:start	kw:+	NAME:len
-frag:190	0	xs[start..<end]	OK	NAME:xs	kw:[	NAME:start	kw:..<	NAME:end	kw:]
-frag:191	0	let type = tok.type	OK	kw:let	NAME:type	kw:=	NAME:tok	kw:.	NAME:type
-frag:192	0	test(x)	OK	NAME:test	kw:(	NAME:x	kw:)
-frag:193	0	let test = 1	OK	kw:let	NAME:test	kw:=	INT:1
-frag:194	0	discard(x)	OK	NAME:discard	kw:(	NAME:x	kw:)
-frag:195	0	type Имя = Тип	OK	kw:type	NAME:Имя	kw:=	NAME:Тип
-frag:196	0	test "имя" { }	OK	kw:test	STRING:"имя"	kw:{	kw:}
-frag:197	0	discard self	OK	kw:discard	kw:self
-frag:198	0	impl It { func take(self, n: usize) -> It { self }; func any(self) -> bool { true } }	OK	kw:impl	NAME:It	kw:{	kw:func	NAME:take	kw:(	kw:self	kw:,	NAME:n	kw::	NAME:usize	kw:)	kw:->	NAME:It	kw:{	kw:self	kw:}	TERM	kw:func	NAME:any	kw:(	kw:self	kw:)	kw:->	NAME:bool	kw:{	kw:true	kw:}	kw:}
-frag:199	0	func(mut model: Model, msg: Msg) -> Task[Msg]	OK	kw:func	kw:(	kw:mut	NAME:model	kw::	NAME:Model	kw:,	NAME:msg	kw::	NAME:Msg	kw:)	kw:->	NAME:Task	kw:[	NAME:Msg	kw:]
-frag:200	0	func(take f: take func())	OK	kw:func	kw:(	kw:take	NAME:f	kw::	kw:take	kw:func	kw:(	kw:)	kw:)
-frag:201	0	func(_: i64)	OK	kw:func	kw:(	kw:_	kw::	NAME:i64	kw:)
-frag:202	0	func(mut ref T)	OK	kw:func	kw:(	kw:mut	kw:ref	NAME:T	kw:)
-frag:203	0	func(mut x: mut ref T)	OK	kw:func	kw:(	kw:mut	NAME:x	kw::	kw:mut	kw:ref	NAME:T	kw:)
-frag:204	0	match x { case A { } end case\nelse { } end else\n} end match	OK	kw:match	NAME:x	kw:{	kw:case	NAME:A	kw:{	kw:}	kw:end	kw:case	TERM	kw:else	kw:{	kw:}	kw:end	kw:else	TERM	kw:}	kw:end	kw:match
-frag:205	0	f() catch { } end catch	OK	NAME:f	kw:(	kw:)	kw:catch	kw:{	kw:}	kw:end	kw:catch
-frag:206	0	f() catch err { 0 } end catch	OK	NAME:f	kw:(	kw:)	kw:catch	NAME:err	kw:{	INT:0	kw:}	kw:end	kw:catch
-frag:207	0	func(x) { } end func	OK	kw:func	kw:(	NAME:x	kw:)	kw:{	kw:}	kw:end	kw:func
-frag:208	0	@low { } end @low	OK	kw:@low	kw:{	kw:}	kw:end	kw:@low
-frag:209	0	target { case x86.sse4_2 { } end case\nelse { } end else\n} end target	OK	kw:target	kw:{	kw:case	NAME:x86	kw:.	NAME:sse4_2	kw:{	kw:}	kw:end	kw:case	TERM	kw:else	kw:{	kw:}	kw:end	kw:else	TERM	kw:}	kw:end	kw:target
-frag:210	1	let ys = xs\n  .map(f)\n  // комментарий\n  .filter(g)\nlet z = 1	OK	kw:let	NAME:ys	kw:=	NAME:xs	kw:.	NAME:map	kw:(	NAME:f	kw:)	kw:.	NAME:filter	kw:(	NAME:g	kw:)	TERM	kw:let	NAME:z	kw:=	INT:1	TERM
-frag:211	0	if i == end { } end if	OK	kw:if	NAME:i	kw:==	NAME:end	kw:{	kw:}	kw:end	kw:if
-frag:212	0	for type in types { }	OK	kw:for	NAME:type	kw:in	NAME:types	kw:{	kw:}
-frag:213	0	test "имя" { } end test	OK	kw:test	STRING:"имя"	kw:{	kw:}	kw:end	kw:test
-frag:214	0	extern "C" trust "обоснование" { } end extern	OK	kw:extern	STRING:"C"	kw:trust	STRING:"обоснование"	kw:{	kw:}	kw:end	kw:extern
-frag:215	0	trust "обоснование" { } end trust	OK	kw:trust	STRING:"обоснование"	kw:{	kw:}	kw:end	kw:trust
-frag:216	0	provide fs = disk { } end provide	OK	kw:provide	NAME:fs	kw:=	NAME:disk	kw:{	kw:}	kw:end	kw:provide
-frag:217	0	struct Точка { x: f32; y: f32 } end Точка	OK	kw:struct	NAME:Точка	kw:{	NAME:x	kw::	NAME:f32	TERM	NAME:y	kw::	NAME:f32	kw:}	kw:end	NAME:Точка
-frag:218	0	while условие { } end while	OK	kw:while	NAME:условие	kw:{	kw:}	kw:end	kw:while
-frag:219	0	enum E { A; B(i64) } end E	OK	kw:enum	NAME:E	kw:{	NAME:A	TERM	NAME:B	kw:(	NAME:i64	kw:)	kw:}	kw:end	NAME:E
-frag:220	0	interface I { func f(self) } end I	OK	kw:interface	NAME:I	kw:{	kw:func	NAME:f	kw:(	kw:self	kw:)	kw:}	kw:end	NAME:I
-frag:221	1	let test = 1; test(x)	OK	kw:let	NAME:test	kw:=	INT:1	TERM	NAME:test	kw:(	NAME:x	kw:)	TERM
-frag:222	0	func end() { } end end	OK	kw:func	NAME:end	kw:(	kw:)	kw:{	kw:}	kw:end	NAME:end
-frag:223	0	func() { } end func catch { 0 }	OK	kw:func	kw:(	kw:)	kw:{	kw:}	kw:end	kw:func	kw:catch	kw:{	INT:0	kw:}
-frag:224	0	import m.{a, life as b}	OK	kw:import	NAME:m	kw:.	kw:{	NAME:a	kw:,	NAME:life	kw:as	NAME:b	kw:}
-frag:225	0	f(a, life(b))	OK	NAME:f	kw:(	NAME:a	kw:,	NAME:life	kw:(	NAME:b	kw:)	kw:)
-frag:226	0	Table[K, life a]	OK	NAME:Table	kw:[	NAME:K	kw:,	kw:life	NAME:a	kw:]
-frag:227	0	Table[life self]	OK	NAME:Table	kw:[	kw:life	kw:self	kw:]
-frag:228	0	func test() { } end test	OK	kw:func	NAME:test	kw:(	kw:)	kw:{	kw:}	kw:end	kw:test
-frag:229	0	test: loop { } end test	OK	NAME:test	kw::	kw:loop	kw:{	kw:}	kw:end	kw:test
+frag:167	0	let x = x + 1	OK	kw:let	NAME:x	kw:=	NAME:x	kw:+	INT:1
+frag:168	0	func main() { }	OK	kw:func	NAME:main	kw:(	kw:)	kw:{	kw:}
+frag:169	0	media.camera()	OK	NAME:media	kw:.	NAME:camera	kw:(	kw:)
+frag:170	0	func(M) -> View[Msg] uses heap	OK	kw:func	kw:(	NAME:M	kw:)	kw:->	NAME:View	kw:[	NAME:Msg	kw:]	kw:uses	NAME:heap
+frag:171	0	ui.Task[Msg]	OK	NAME:ui	kw:.	NAME:Task	kw:[	NAME:Msg	kw:]
+frag:172	0	ui.Task[Msg, uses (net, suspend)]	OK	NAME:ui	kw:.	NAME:Task	kw:[	NAME:Msg	kw:,	kw:uses	kw:(	NAME:net	kw:,	NAME:suspend	kw:)	kw:]
+frag:173	0	Result[(), any Error]	OK	NAME:Result	kw:[	kw:(	kw:)	kw:,	kw:any	NAME:Error	kw:]
+frag:174	0	modules.load[Editor](url)	OK	NAME:modules	kw:.	NAME:load	kw:[	NAME:Editor	kw:]	kw:(	NAME:url	kw:)
+frag:175	0	any Editor	OK	kw:any	NAME:Editor
+frag:176	0	[life s]	OK	kw:[	kw:life	NAME:s	kw:]
+frag:177	0	Array[T, N].filled	OK	NAME:Array	kw:[	NAME:T	kw:,	NAME:N	kw:]	kw:.	NAME:filled
+frag:178	0	task.scope_limited(1000, f)	OK	NAME:task	kw:.	NAME:scope_limited	kw:(	INT:1000	kw:,	NAME:f	kw:)
+frag:179	0	x.clone()	OK	NAME:x	kw:.	NAME:clone	kw:(	kw:)
+frag:180	0	ui.Icon.Close	OK	NAME:ui	kw:.	NAME:Icon	kw:.	NAME:Close
+frag:181	0	Eq and Hash	OK	NAME:Eq	kw:and	NAME:Hash
+frag:182	0	for x in v { }	OK	kw:for	NAME:x	kw:in	NAME:v	kw:{	kw:}
+frag:183	0	Router[uses (net, suspend, heap)]	OK	NAME:Router	kw:[	kw:uses	kw:(	NAME:net	kw:,	NAME:suspend	kw:,	NAME:heap	kw:)	kw:]
+frag:184	0	@file(production, target(lm3s6965))	OK	kw:@file	kw:(	NAME:production	kw:,	kw:target	kw:(	NAME:lm3s6965	kw:)	kw:)
+frag:185	0	xs.any(f)	OK	NAME:xs	kw:.	NAME:any	kw:(	NAME:f	kw:)
+frag:186	0	xs.take(3)	OK	NAME:xs	kw:.	NAME:take	kw:(	INT:3	kw:)
+frag:187	0	re.match(s)	OK	NAME:re	kw:.	NAME:match	kw:(	NAME:s	kw:)
+frag:188	0	e.target()	OK	NAME:e	kw:.	NAME:target	kw:(	kw:)
+frag:189	0	tok.type	OK	NAME:tok	kw:.	NAME:type
+frag:190	0	let end = start + len	OK	kw:let	NAME:end	kw:=	NAME:start	kw:+	NAME:len
+frag:191	0	xs[start..<end]	OK	NAME:xs	kw:[	NAME:start	kw:..<	NAME:end	kw:]
+frag:192	0	let type = tok.type	OK	kw:let	NAME:type	kw:=	NAME:tok	kw:.	NAME:type
+frag:193	0	test(x)	OK	NAME:test	kw:(	NAME:x	kw:)
+frag:194	0	let test = 1	OK	kw:let	NAME:test	kw:=	INT:1
+frag:195	0	discard(x)	OK	NAME:discard	kw:(	NAME:x	kw:)
+frag:196	0	type Имя = Тип	OK	kw:type	NAME:Имя	kw:=	NAME:Тип
+frag:197	0	test "имя" { }	OK	kw:test	STRING:"имя"	kw:{	kw:}
+frag:198	0	discard self	OK	kw:discard	kw:self
+frag:199	0	impl It { func take(self, n: usize) -> It { self }; func any(self) -> bool { true } }	OK	kw:impl	NAME:It	kw:{	kw:func	NAME:take	kw:(	kw:self	kw:,	NAME:n	kw::	NAME:usize	kw:)	kw:->	NAME:It	kw:{	kw:self	kw:}	TERM	kw:func	NAME:any	kw:(	kw:self	kw:)	kw:->	NAME:bool	kw:{	kw:true	kw:}	kw:}
+frag:200	0	func(mut model: Model, msg: Msg) -> Task[Msg]	OK	kw:func	kw:(	kw:mut	NAME:model	kw::	NAME:Model	kw:,	NAME:msg	kw::	NAME:Msg	kw:)	kw:->	NAME:Task	kw:[	NAME:Msg	kw:]
+frag:201	0	func(take f: take func())	OK	kw:func	kw:(	kw:take	NAME:f	kw::	kw:take	kw:func	kw:(	kw:)	kw:)
+frag:202	0	func(_: i64)	OK	kw:func	kw:(	kw:_	kw::	NAME:i64	kw:)
+frag:203	0	func(mut ref T)	OK	kw:func	kw:(	kw:mut	kw:ref	NAME:T	kw:)
+frag:204	0	func(mut x: mut ref T)	OK	kw:func	kw:(	kw:mut	NAME:x	kw::	kw:mut	kw:ref	NAME:T	kw:)
+frag:205	0	match x { case A { } end case\nelse { } end else\n} end match	OK	kw:match	NAME:x	kw:{	kw:case	NAME:A	kw:{	kw:}	kw:end	kw:case	TERM	kw:else	kw:{	kw:}	kw:end	kw:else	TERM	kw:}	kw:end	kw:match
+frag:206	0	f() catch { } end catch	OK	NAME:f	kw:(	kw:)	kw:catch	kw:{	kw:}	kw:end	kw:catch
+frag:207	0	f() catch err { 0 } end catch	OK	NAME:f	kw:(	kw:)	kw:catch	NAME:err	kw:{	INT:0	kw:}	kw:end	kw:catch
+frag:208	0	func(x) { } end func	OK	kw:func	kw:(	NAME:x	kw:)	kw:{	kw:}	kw:end	kw:func
+frag:209	0	@low { } end @low	OK	kw:@low	kw:{	kw:}	kw:end	kw:@low
+frag:210	0	target { case x86.sse4_2 { } end case\nelse { } end else\n} end target	OK	kw:target	kw:{	kw:case	NAME:x86	kw:.	NAME:sse4_2	kw:{	kw:}	kw:end	kw:case	TERM	kw:else	kw:{	kw:}	kw:end	kw:else	TERM	kw:}	kw:end	kw:target
+frag:211	1	let ys = xs\n  .map(f)\n  // комментарий\n  .filter(g)\nlet z = 1	OK	kw:let	NAME:ys	kw:=	NAME:xs	kw:.	NAME:map	kw:(	NAME:f	kw:)	kw:.	NAME:filter	kw:(	NAME:g	kw:)	TERM	kw:let	NAME:z	kw:=	INT:1	TERM
+frag:212	0	if i == end { } end if	OK	kw:if	NAME:i	kw:==	NAME:end	kw:{	kw:}	kw:end	kw:if
+frag:213	0	for type in types { }	OK	kw:for	NAME:type	kw:in	NAME:types	kw:{	kw:}
+frag:214	0	test "имя" { } end test	OK	kw:test	STRING:"имя"	kw:{	kw:}	kw:end	kw:test
+frag:215	0	extern "C" trust "обоснование" { } end extern	OK	kw:extern	STRING:"C"	kw:trust	STRING:"обоснование"	kw:{	kw:}	kw:end	kw:extern
+frag:216	0	trust "обоснование" { } end trust	OK	kw:trust	STRING:"обоснование"	kw:{	kw:}	kw:end	kw:trust
+frag:217	0	provide fs = disk { } end provide	OK	kw:provide	NAME:fs	kw:=	NAME:disk	kw:{	kw:}	kw:end	kw:provide
+frag:218	0	struct Точка { x: f32; y: f32 } end Точка	OK	kw:struct	NAME:Точка	kw:{	NAME:x	kw::	NAME:f32	TERM	NAME:y	kw::	NAME:f32	kw:}	kw:end	NAME:Точка
+frag:219	0	while условие { } end while	OK	kw:while	NAME:условие	kw:{	kw:}	kw:end	kw:while
+frag:220	0	enum E { A; B(i64) } end E	OK	kw:enum	NAME:E	kw:{	NAME:A	TERM	NAME:B	kw:(	NAME:i64	kw:)	kw:}	kw:end	NAME:E
+frag:221	0	interface I { func f(self) } end I	OK	kw:interface	NAME:I	kw:{	kw:func	NAME:f	kw:(	kw:self	kw:)	kw:}	kw:end	NAME:I
+frag:222	1	let test = 1; test(x)	OK	kw:let	NAME:test	kw:=	INT:1	TERM	NAME:test	kw:(	NAME:x	kw:)	TERM
+frag:223	0	func end() { } end end	OK	kw:func	NAME:end	kw:(	kw:)	kw:{	kw:}	kw:end	NAME:end
+frag:224	0	func() { } end func catch { 0 }	OK	kw:func	kw:(	kw:)	kw:{	kw:}	kw:end	kw:func	kw:catch	kw:{	INT:0	kw:}
+frag:225	0	import m.{a, life as b}	OK	kw:import	NAME:m	kw:.	kw:{	NAME:a	kw:,	NAME:life	kw:as	NAME:b	kw:}
+frag:226	0	f(a, life(b))	OK	NAME:f	kw:(	NAME:a	kw:,	NAME:life	kw:(	NAME:b	kw:)	kw:)
+frag:227	0	Table[K, life a]	OK	NAME:Table	kw:[	NAME:K	kw:,	kw:life	NAME:a	kw:]
+frag:228	0	Table[life self]	OK	NAME:Table	kw:[	kw:life	kw:self	kw:]
+frag:229	0	func test() { } end test	OK	kw:func	NAME:test	kw:(	kw:)	kw:{	kw:}	kw:end	kw:test
+frag:230	0	test: loop { } end test	OK	NAME:test	kw::	kw:loop	kw:{	kw:}	kw:end	kw:test
 neg:1	0	a and b or c	OK	NAME:a	kw:and	NAME:b	kw:or	NAME:c
 neg:2	0	a or b and c	OK	NAME:a	kw:or	NAME:b	kw:and	NAME:c
 neg:3	0	a < b < c	OK	NAME:a	kw:<	NAME:b	kw:<	NAME:c
