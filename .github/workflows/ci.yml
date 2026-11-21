@@ -45,7 +45,7 @@ jobs:
       - run: cargo test
 
   grammar:
-    name: Грамматика и эталоны
+    name: Грамматика, эталоны, номера спецификации
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -63,3 +63,5 @@ jobs:
           python3 tools/grammar/depth_cases.py grammar > grammar/depth.golden.tsv
           python3 tools/grammar/build_doc.py grammar spec/grammar.md
           git diff --exit-code
+      - name: Номера пунктов спецификации
+        run: python3 tools/spec/numbers.py check spec/nulix.md
