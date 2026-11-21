@@ -43,6 +43,26 @@ fn type_id(p: &Program, name: &str) -> usize {
 
 const I64: Type = Type::Scalar(Scalar::I64);
 
+/// Номер первой строки текста, в которой есть `needle`.
+fn line_of(text: &str, needle: &str) -> u32 {
+    match text.lines().position(|l| l.contains(needle)) {
+        Some(k) => k as u32 + 1,
+        None => panic!("в тексте нет «{}»", needle),
+    }
+}
+
+/// Проверка на потоке с маленьким стеком: так видно, что обход не рекурсивный.
+fn run_on_small_stack(text: String) -> Result<Program, (u32, String)> {
+    let handle = std::thread::Builder::new()
+        .stack_size(1 << 20)
+        .spawn(move || run(&text))
+        .expect("не удалось создать поток");
+    match handle.join() {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
 // ───────── правильные объявления ─────────
 
 const DECLS: &str = "@file(develop)
@@ -57,7 +77,8 @@ impl Copy for Point {}
 
 enum Shape {
 \tCircle(r: f64)
-\tRect(w: f64, h: f64)
+\tRect(w: f64,
+\t\th: f64)
 \tEmpty
 }
 
@@ -228,6 +249,64 @@ fn declarations_are_accepted() {
 
     let tests: Vec<&str> = p.tests.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(tests, ["площадь", "имя с \"кавычками\" и $"]);
+
+    // строки: у типа — слово struct или enum, у поля и варианта — их строка, у функции —
+    // слово func, у параметра — его строка, у теста — строка имени
+    assert_eq!(p.types[point].line, line_of(DECLS, "struct Point"));
+    assert_eq!(line.line, line_of(DECLS, "struct Line"));
+    match &line.kind {
+        TypeKind::Struct(fields) => {
+            assert_eq!(fields[0].line, line_of(DECLS, "\tfrom: Point"));
+            assert_eq!(fields[4].line, line_of(DECLS, "\top: Op"));
+        }
+        TypeKind::Enum(_) => panic!("Line — запись"),
+    }
+    let shape = &p.types[type_id(&p, "Shape")];
+    assert_eq!(shape.line, line_of(DECLS, "enum Shape"));
+    match &shape.kind {
+        TypeKind::Enum(variants) => {
+            assert_eq!(variants[0].line, line_of(DECLS, "\tCircle("));
+            assert_eq!(variants[2].line, line_of(DECLS, "\tEmpty"));
+            match &variants[1].payload {
+                Payload::Fields(fields) => {
+                    assert_eq!(fields[0].line, line_of(DECLS, "\tRect("));
+                    assert_eq!(fields[1].line, line_of(DECLS, "\t\th: f64)"));
+                }
+                other => panic!("у Rect поля, а не {:?}", other),
+            }
+        }
+        TypeKind::Struct(_) => panic!("Shape — перечисление"),
+    }
+    assert_eq!(p.funcs[0].line, line_of(DECLS, "pub func area"));
+    assert_eq!(p.funcs[3].line, line_of(DECLS, "func forever"));
+    assert_eq!(move_by.params[1].line, line_of(DECLS, "func move_by"));
+    assert_eq!(p.tests[0].line, line_of(DECLS, "test \"площадь\""));
+    assert_eq!(p.tests[1].line, line_of(DECLS, "test \"имя с"));
+}
+
+#[test]
+fn array_lengths_are_read_in_every_base() {
+    let p = accepted(
+        "func f(a: Array[u8, 0b101], b: Array[u8, 0o17], c: Array[u8, 0x1F], d: Array[u8, 1_000]) {\n}\n",
+    );
+    let lengths: Vec<u64> = p.funcs[0]
+        .params
+        .iter()
+        .map(|q| match &q.ty {
+            Type::Array(_, n) => *n,
+            other => panic!("не массив: {:?}", other),
+        })
+        .collect();
+    assert_eq!(lengths, [5, 15, 31, 1000]);
+}
+
+#[test]
+fn test_names_are_read_with_every_escape() {
+    let p = accepted("test \"\\n\\t\\r\\0\\\\\\\"\\'\\$\\u{41}\\u{1F600}\" {\n}\n");
+    assert_eq!(p.tests[0].name, "\n\t\r\0\\\"'$A\u{1F600}");
+    // строка теста — строка его имени, а не пометки над ним
+    let p = accepted("@high\ntest \"a\" {\n}\n");
+    assert_eq!(p.tests[0].line, 2);
 }
 
 #[test]
@@ -271,24 +350,25 @@ fn long_chain_of_types_is_checked_without_recursion() {
         text.push_str(&format!("struct T{} {{\n\tnext: T{}\n}}\n", k, k + 1));
     }
     text.push_str(&format!("struct T{} {{\n}}\n", n));
-    let p = stack::run_scoped(|| accepted(&text));
+    let p = match run_on_small_stack(text.clone()) {
+        Ok(p) => p,
+        Err(e) => panic!("отвергнуто: {:?}", e),
+    };
     assert_eq!(p.types.len(), n + 1);
     // тот же ряд, замкнутый в кольцо, отвергается
     let ring = text.replace(
         &format!("struct T{} {{\n}}\n", n),
         &format!("struct T{} {{\n\tnext: T0\n}}\n", n),
     );
-    let result = stack::run_scoped(|| run(&ring));
-    match result {
-        Err((1, message)) => assert!(
-            message.starts_with("тип T0 содержит сам себя без косвенности: T0 → T1 → T2 → "),
-            "{}",
-            message
+    match run_on_small_stack(ring) {
+        Err((line, message)) => assert_eq!(
+            (line, message.as_str()),
+            (
+                1,
+                "тип T0 содержит сам себя без косвенности: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → … → T0 (9.9)"
+            )
         ),
-        other => panic!(
-            "ждали ошибку в строке 1, а получили {:?}",
-            other.map(|_| ())
-        ),
+        Ok(_) => panic!("кольцо из типов принято"),
     }
 }
 
@@ -382,6 +462,11 @@ const REJECTED: &[(&str, u32, &str)] = &[
         "не входит в шаг 2: impl, кроме impl Copy for T {}",
     ),
     (
+        "struct P {\n}\nimpl Copy[i64] for P {\n}\n",
+        3,
+        "не входит в шаг 2: impl, кроме impl Copy for T {}",
+    ),
+    (
         "impl Copy {\n}\n",
         1,
         "не входит в шаг 2: impl, кроме impl Copy for T {}",
@@ -447,6 +532,11 @@ const REJECTED: &[(&str, u32, &str)] = &[
         "поле x варианта A повторено",
     ),
     (
+        "enum E {\n\tA(x: i64,\n\t\tx: u8)\n}\n",
+        3,
+        "поле x варианта A повторено",
+    ),
+    (
         "enum E {\n} end F\n",
         1,
         "метка end F не совпадает с именем перечисления E",
@@ -507,6 +597,11 @@ const REJECTED: &[(&str, u32, &str)] = &[
         1,
         "имя Option занято: оно доступно без импорта (12.89–12.91)",
     ),
+    (
+        "struct Add {\n}\n",
+        1,
+        "имя Add занято: оно доступно без импорта (12.89–12.91)",
+    ),
     // типы
     ("func f(x: Str) {\n}\n", 1, "не входит в шаг 2: Str"),
     (
@@ -519,6 +614,10 @@ const REJECTED: &[(&str, u32, &str)] = &[
     ("func f(x: Unknown) {\n}\n", 1, "нет типа Unknown"),
     ("func f(x: a.b) {\n}\n", 1, "нет типа a.b"),
     ("func f(x: f) {\n}\n", 1, "нет типа f"),
+    ("func f(x: print) {\n}\n", 1, "нет типа print"),
+    ("func f(x: Some) {\n}\n", 1, "нет типа Some"),
+    ("func f(x: Copy) {\n}\n", 1, "нет типа Copy"),
+    ("func f(x: Bytes) {\n}\n", 1, "не входит в шаг 2: Bytes"),
     (
         "struct P {\n}\nfunc f(x: P[i64]) {\n}\n",
         3,
@@ -638,6 +737,21 @@ const REJECTED: &[(&str, u32, &str)] = &[
         "метка end impl Display for P не совпадает с заголовком impl Copy for P",
     ),
     (
+        "struct P {\n}\nimpl Copy for P {\n} end impl Copy\n",
+        3,
+        "метка end impl Copy не совпадает с заголовком impl Copy for P",
+    ),
+    (
+        "impl Copy for Str {\n}\n",
+        1,
+        "impl Copy for Str: Copy объявляют только у записей и перечислений пакета",
+    ),
+    (
+        "impl Copy for Array[i64, 3] {\n}\n",
+        1,
+        "impl Copy for Array: Copy объявляют только у записей и перечислений пакета",
+    ),
+    (
         "struct T {\n}\nstruct P {\n\tt: T\n}\nimpl Copy for P {\n}\n",
         6,
         "impl Copy for P: поле t типа T не простое",
@@ -682,6 +796,11 @@ const REJECTED: &[(&str, u32, &str)] = &[
         "test \"a\" {\n}\ntest \"\\u{61}\" {\n}\n",
         3,
         "тест «a» уже объявлен в строке 1",
+    ),
+    (
+        "test \"a\\nb\" {\n}\ntest \"a\\nb\" {\n}\n",
+        3,
+        "тест «a\\nb» уже объявлен в строке 1",
     ),
     (
         "test \"\\u{D800}\" {\n}\n",

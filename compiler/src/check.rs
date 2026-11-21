@@ -40,11 +40,16 @@ fn outside<T>(line: u32, what: &str) -> R<T> {
 }
 
 /// Имена, доступные без импорта (12.89–12.91): своим объявлением их не называют (решение 17).
-const STANDARD_NAMES: [&str; 23] = [
+/// Из интерфейсов операторов (12.90) спецификация поимённо называет только `Add` (12.25).
+const STANDARD_NAMES: [&str; 24] = [
     "Option", "Result", "Some", "None", "Ok", "Err", "print", "Drop", "Copy", "From", "Error",
-    "Display", "Debug", "Eq", "Ord", "Hash", "Iterator", "List", "Str", "Bytes", "TextOut",
+    "Display", "Debug", "Eq", "Ord", "Hash", "Iterator", "Add", "List", "Str", "Bytes", "TextOut",
     "size_of", "align_of",
 ];
+
+/// Типы среди стандартных имён: в шаге 2 их нет (раздел 3). Остальные стандартные имена —
+/// функции, варианты и интерфейсы — типами не являются.
+const STANDARD_TYPES: [&str; 6] = ["Option", "Result", "List", "Str", "Bytes", "TextOut"];
 
 /// Слова строгости в заголовке `@file(…)` (12.66, 12.68).
 const STRICTNESS: [&str; 4] = ["prototype", "develop", "production", "strict"];
@@ -170,7 +175,7 @@ impl<'a> Checker<'a> {
             ast::DeclKind::Interface(_) => outside(decl.line, "interface"),
             ast::DeclKind::Impl(i) => self.impl_decl(i),
             ast::DeclKind::TypeAlias(_) => outside(decl.line, "type"),
-            ast::DeclKind::Test(t) => self.test_decl(t, decl.line),
+            ast::DeclKind::Test(t) => self.test_decl(t),
         }
     }
 
@@ -271,7 +276,7 @@ impl<'a> Checker<'a> {
                 for field in fields {
                     if !names.insert(field.name.as_str()) {
                         return fail(
-                            variant.line,
+                            field.ty.line,
                             format!("поле {} варианта {} повторено", field.name, variant.name),
                         );
                     }
@@ -332,7 +337,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn test_decl(&mut self, t: &'a ast::TestDecl, line: u32) -> R<()> {
+    fn test_decl(&mut self, t: &'a ast::TestDecl) -> R<()> {
         let name = &t.name;
         if !name.subs.is_empty() {
             return fail(name.line, "имя теста — строка без подстановок".to_string());
@@ -347,11 +352,18 @@ impl<'a> Checker<'a> {
         if let Some(first) = self.tests.get(&value) {
             return fail(
                 name.line,
-                format!("тест «{}» уже объявлен в строке {}", value, first),
+                format!(
+                    "тест «{}» уже объявлен в строке {}",
+                    value.escape_debug(),
+                    first
+                ),
             );
         }
         self.tests.insert(value.clone(), name.line);
-        self.program.tests.push(Test { name: value, line });
+        self.program.tests.push(Test {
+            name: value,
+            line: name.line,
+        });
         Ok(())
     }
 
@@ -416,7 +428,7 @@ impl<'a> Checker<'a> {
                                     out.push(Field {
                                         name: field.name.clone(),
                                         ty: self.ty(&field.ty)?,
-                                        line: variant.line,
+                                        line: field.ty.line,
                                     });
                                 }
                                 Payload::Fields(out)
@@ -509,7 +521,7 @@ impl<'a> Checker<'a> {
             Type::Never
         } else if let Some((Item::Type(id), _)) = self.names.get(name) {
             Type::Named(*id)
-        } else if STANDARD_NAMES.contains(&name) {
+        } else if STANDARD_TYPES.contains(&name) {
             return outside(path.line, name);
         } else {
             return fail(path.line, format!("нет типа {}", name));
@@ -551,10 +563,9 @@ impl<'a> Checker<'a> {
         for k in 0..self.impls.len() {
             let (target, line) = self.impls[k];
             let text = path_text(target);
-            if !target.args.is_empty() {
-                return outside(line, "обобщения");
-            }
-            if target.names.len() == 1 && builtin_type(&target.names[0]) {
+            if target.names.len() == 1
+                && (builtin_type(&target.names[0]) || STANDARD_TYPES.contains(&text.as_str()))
+            {
                 return fail(
                     line,
                     format!(
@@ -562,6 +573,9 @@ impl<'a> Checker<'a> {
                         text
                     ),
                 );
+            }
+            if !target.args.is_empty() {
+                return outside(line, "обобщения");
             }
             let id = match self.names.get(text.as_str()) {
                 Some((Item::Type(id), _)) if target.names.len() == 1 => *id,
@@ -625,10 +639,14 @@ impl<'a> Checker<'a> {
                 let w = edges[v][k];
                 if state[w] == 1 {
                     let from = path.iter().position(|(x, _)| *x == w).unwrap_or(0);
-                    let mut chain: Vec<&str> = path[from..]
-                        .iter()
-                        .map(|(x, _)| types[*x].name.as_str())
-                        .collect();
+                    let cycle = &path[from..];
+                    // длинную цепочку сообщение показывает началом: первые 9 имён, «…» и конец
+                    let shown = if cycle.len() > 9 { &cycle[..9] } else { cycle };
+                    let mut chain: Vec<&str> =
+                        shown.iter().map(|(x, _)| types[*x].name.as_str()).collect();
+                    if cycle.len() > shown.len() {
+                        chain.push("…");
+                    }
                     chain.push(types[w].name.as_str());
                     return fail(
                         types[w].line,
