@@ -27,6 +27,15 @@ func copy_owned() {
   drop u
 }
 
+; кортеж с непростым элементом — не простой
+func copy_tuple_owned() {
+  tk: Token = make Token(id: const 1)
+  t: (i64, Token) = tuple(const 1, move tk)
+  u: (i64, Token) = copy t
+  drop t
+  drop u
+}
+
 func overwrite() {
   t: Token = make Token(id: const 1)
   t = make Token(id: const 2)
