@@ -447,7 +447,9 @@ impl Parser {
 
     fn file(&mut self) -> Res<File> {
         let mut header = None;
+        let mut header_line = 0;
         if self.at("@file") {
+            header_line = self.line();
             header = Some(self.file_header()?);
             self.expect_term()?;
         }
@@ -463,6 +465,7 @@ impl Parser {
         }
         Ok(File {
             header,
+            header_line,
             imports,
             items,
         })

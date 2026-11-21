@@ -10,6 +10,8 @@
 #[derive(Debug, Clone, PartialEq)]
 pub struct File {
     pub header: Option<Vec<HeaderArg>>,
+    /// Строка заголовка `@file(…)`; без заголовка — 0.
+    pub header_line: u32,
     pub imports: Vec<Import>,
     pub items: Vec<TopItem>,
 }
