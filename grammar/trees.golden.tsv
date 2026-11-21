@@ -308,6 +308,9 @@ frag:306	type	Table[K, life a]	OK	(t-path Table (targs (t-path K) (life a)))
 frag:307	type	Table[life self]	OK	(t-path Table (targs (life-self)))
 frag:308	decl	func test() { } end test	OK	(decl (func (sig test (params)) (block) (end test)))
 frag:309	stmt	test: loop { } end test	OK	(loop (label test) (block) (end test))
+frag:310	expr	w * h	OK	(* (name w) (name h))
+frag:311	expr	Expr.Num(2)	OK	(call (. (name Expr) Num) (int 2))
+frag:312	expr	Op.Add	OK	(. (name Op) Add)
 neg:1	expr	a and b or c	ERROR
 neg:2	expr	a or b and c	ERROR
 neg:3	expr	a < b < c	ERROR
