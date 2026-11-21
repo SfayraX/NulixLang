@@ -45,7 +45,7 @@ impl Iterator for Segments {
 }
 
 @system
-func first[T: Eq and Hash](xs: ref List[T]) -> ref(xs) T without (heap, crash) limit stack <= 4096 {
+func first[T: Eq and Hash](xs: ref List[T]) -> Option[ref(xs) T] without (heap, crash) limit stack <= 4096 {
 	xs.get(0)
 }
 
