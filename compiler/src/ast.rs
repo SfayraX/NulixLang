@@ -10,6 +10,8 @@
 #[derive(Debug, Clone, PartialEq)]
 pub struct File {
     pub header: Option<Vec<HeaderArg>>,
+    /// Строка заголовка `@file(…)`; без заголовка — 0.
+    pub header_line: u32,
     pub imports: Vec<Import>,
     pub items: Vec<TopItem>,
 }
@@ -175,6 +177,8 @@ pub struct StructDecl {
     pub generics: Vec<GenericParam>,
     pub fields: Vec<Field>,
     pub end: Option<String>,
+    /// Строка слова `struct`.
+    pub line: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -193,6 +197,8 @@ pub struct EnumDecl {
     pub generics: Vec<GenericParam>,
     pub variants: Vec<Variant>,
     pub end: Option<String>,
+    /// Строка слова `enum`.
+    pub line: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -233,6 +239,8 @@ pub struct ImplDecl {
     pub for_type: Option<PathType>,
     pub members: Vec<Member>,
     pub end: Option<EndImpl>,
+    /// Строка слова `impl`.
+    pub line: u32,
 }
 
 /// Метка `end impl Первый for Второй`.

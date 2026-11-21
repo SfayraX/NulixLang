@@ -7,6 +7,8 @@
 #![forbid(unsafe_code)]
 
 pub mod ast;
+pub mod check;
+pub mod core;
 pub mod dump;
 pub mod interp;
 pub mod ir;
