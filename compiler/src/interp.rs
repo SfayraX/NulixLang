@@ -117,21 +117,6 @@ pub fn call(m: &Module, func: &str, args: Vec<Value>, limits: Limits) -> Result<
 
 // ───────── числа ─────────
 
-/// Пределы целого типа; у остальных скаляров их нет.
-fn int_range(s: Scalar) -> Option<(i128, i128)> {
-    Some(match s {
-        Scalar::I8 => (i8::MIN as i128, i8::MAX as i128),
-        Scalar::I16 => (i16::MIN as i128, i16::MAX as i128),
-        Scalar::I32 => (i32::MIN as i128, i32::MAX as i128),
-        Scalar::I64 => (i64::MIN as i128, i64::MAX as i128),
-        Scalar::U8 => (0, u8::MAX as i128),
-        Scalar::U16 => (0, u16::MAX as i128),
-        Scalar::U32 => (0, u32::MAX as i128),
-        Scalar::U64 => (0, u64::MAX as i128),
-        _ => return None,
-    })
-}
-
 fn int_bits(s: Scalar) -> u32 {
     match s {
         Scalar::I8 | Scalar::U8 => 8,
@@ -139,10 +124,6 @@ fn int_bits(s: Scalar) -> u32 {
         Scalar::I32 | Scalar::U32 => 32,
         _ => 64,
     }
-}
-
-fn is_signed(s: Scalar) -> bool {
-    matches!(s, Scalar::I8 | Scalar::I16 | Scalar::I32 | Scalar::I64)
 }
 
 /// Все биты целого типа.
@@ -228,7 +209,7 @@ pub fn eval_op(op: Op, ty: Scalar, args: &[Value]) -> Result<Value, Stop> {
             ty.name()
         ))
     };
-    if let Some((lo, hi)) = int_range(ty) {
+    if let Some((lo, hi)) = ty.int_range() {
         let a = match &args[0] {
             Value::Int(s, n) if *s == ty => *n,
             _ => return wrong(),
@@ -238,9 +219,9 @@ pub fn eval_op(op: Op, ty: Scalar, args: &[Value]) -> Result<Value, Stop> {
             _ => crash(format!("переполнение: {}", text())),
         };
         match op {
-            Op::Neg if is_signed(ty) => return fit(a.checked_neg()),
+            Op::Neg if ty.is_signed() => return fit(a.checked_neg()),
             Op::Neg => return no_op(),
-            Op::Not if is_signed(ty) => return Ok(Value::Int(ty, !a)),
+            Op::Not if ty.is_signed() => return Ok(Value::Int(ty, !a)),
             Op::Not => return Ok(Value::Int(ty, !a & mask(ty))),
             Op::Shl | Op::Shr => {
                 let count = match &args[1] {
@@ -262,7 +243,7 @@ pub fn eval_op(op: Op, ty: Scalar, args: &[Value]) -> Result<Value, Stop> {
                 }
                 let m = mask(ty) as u128;
                 let r = (((a as u128) & m) << count) & m;
-                let r = if is_signed(ty) && (r >> (bits - 1)) & 1 == 1 {
+                let r = if ty.is_signed() && (r >> (bits - 1)) & 1 == 1 {
                     r as i128 - (1i128 << bits)
                 } else {
                     r as i128
@@ -374,7 +355,7 @@ pub fn eval_conv(from: Scalar, to: Scalar, v: &Value) -> Result<Value, Stop> {
             }
         }
         _ => {
-            let (lo, hi) = match int_range(to) {
+            let (lo, hi) = match to.int_range() {
                 Some(range) => range,
                 None => return invalid(format!("{}: нет такого преобразования", text())),
             };
@@ -496,7 +477,7 @@ impl<'m> Program<'m> {
     fn conforms(&self, v: &Value, t: &Type) -> bool {
         match (v, t) {
             (Value::Int(s, n), Type::Scalar(s2)) => {
-                s == s2 && int_range(*s).is_some_and(|(lo, hi)| lo <= *n && *n <= hi)
+                s == s2 && s.int_range().is_some_and(|(lo, hi)| lo <= *n && *n <= hi)
             }
             (Value::F32(_), Type::Scalar(Scalar::F32))
             | (Value::F64(_), Type::Scalar(Scalar::F64))
@@ -612,6 +593,35 @@ enum Key {
     Bool(bool),
 }
 
+/// Имена и типы всех переменных тела: из `local` и определений, по порядку записи.
+fn collect_locals(b: &Block, out: &mut Vec<(String, Type)>) {
+    for s in &b.stmts {
+        match s {
+            Stmt::Local { name, ty } | Stmt::Define { name, ty, .. } => {
+                out.push((name.clone(), ty.clone()))
+            }
+            Stmt::If {
+                then, otherwise, ..
+            } => {
+                collect_locals(then, out);
+                collect_locals(otherwise, out);
+            }
+            Stmt::Switch {
+                cases, otherwise, ..
+            } => {
+                for c in cases {
+                    collect_locals(&c.body, out);
+                }
+                if let Some(b) = otherwise {
+                    collect_locals(b, out);
+                }
+            }
+            Stmt::Loop { body, .. } => collect_locals(body, out),
+            _ => {}
+        }
+    }
+}
+
 /// Спуск по пути к месту. Номер элемента вне массива — авария.
 fn walk<'a>(mut cur: &'a mut Slot, steps: &[Step], p: &Place) -> Result<&'a mut Slot, Stop> {
     for step in steps {
@@ -685,11 +695,55 @@ impl<'p, 'm> Machine<'p, 'm> {
         }
     }
 
+    /// Переменные функции заводятся при входе, пустыми: у переменной одно место и один тип
+    /// на всю функцию, на каком бы пути её ни объявили.
+    fn with_locals(
+        &self,
+        what: &str,
+        body: &Block,
+        mut vars: HashMap<String, Var>,
+    ) -> Result<HashMap<String, Var>, Stop> {
+        let mut locals = Vec::new();
+        collect_locals(body, &mut locals);
+        for (name, ty) in locals {
+            self.prog.check_type(&ty)?;
+            match vars.get(&name) {
+                Some(var) if var.mode.is_some() => {
+                    return invalid(format!(
+                        "{}: {} — параметр, объявить его заново нельзя",
+                        what, name
+                    ))
+                }
+                Some(var) if var.ty != ty => {
+                    return invalid(format!(
+                        "{}: {} объявлена с типом {}, а здесь {}",
+                        what,
+                        name,
+                        ir_text::ty(&var.ty),
+                        ir_text::ty(&ty)
+                    ))
+                }
+                Some(_) => {}
+                None => {
+                    let var = Var {
+                        ty,
+                        mode: None,
+                        slot: None,
+                    };
+                    vars.insert(name, var);
+                }
+            }
+        }
+        Ok(vars)
+    }
+
     fn run_test(&mut self, t: &Test) -> Result<(), Stop> {
+        let what = format!("тест «{}»", t.name);
+        let vars = self.with_locals(&what, &t.body, HashMap::new())?;
         let mut frame = Frame {
-            what: format!("тест «{}»", t.name),
+            what,
             result: Type::Unit,
-            vars: HashMap::new(),
+            vars,
         };
         let flow = self.block(&mut frame, &t.body)?;
         self.finish(&frame, flow).map(|_| ())
@@ -738,9 +792,11 @@ impl<'p, 'm> Machine<'p, 'm> {
                 self.max_depth
             ));
         }
+        let what = format!("функция {}", f.name);
+        let vars = self.with_locals(&what, &f.body, vars)?;
         self.depth += 1;
         let mut frame = Frame {
-            what: format!("функция {}", f.name),
+            what,
             result: f.result.clone(),
             vars,
         };
@@ -1202,7 +1258,7 @@ impl<'p, 'm> Machine<'p, 'm> {
     /// Константа получает тип места, где стоит.
     fn constant(&self, c: &Const, expected: &Type) -> Result<Value, Stop> {
         match (c, expected) {
-            (Const::Int(n), Type::Scalar(s)) if int_range(*s).is_some() => match int_range(*s) {
+            (Const::Int(n), Type::Scalar(s)) if s.int_range().is_some() => match s.int_range() {
                 Some((lo, hi)) if lo <= *n && *n <= hi => Ok(Value::Int(*s, *n)),
                 _ => invalid(format!("константа {} не помещается в {}", n, s.name())),
             },

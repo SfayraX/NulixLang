@@ -1,0 +1,81 @@
+ir 1
+
+func count_even(n: i64) -> i64 {
+  c: i64 = const 0
+  i: i64 = const 0
+  loop L [held: c, i] {
+    t0: bool = ge.i64(copy i, copy n)
+    if t0 {
+      break L
+    } else { } [held: c, i]
+    i = add.i64(copy i, const 1)
+    t1: i64 = rem.i64(copy i, const 2)
+    t2: bool = ne.i64(copy t1, const 0)
+    if t2 {
+      continue L
+    } else { } [held: c, i]
+    c = add.i64(copy c, const 1)
+  } [held: c, i]
+  return copy c
+}
+
+; наименьшая пара i, j от 1 до limit с i * j = target; ответ — i * 100 + j, иначе -1
+func first_product(target: i64, limit: i64) -> i64 {
+  i: i64 = const 0
+  r: i64 = const -1
+  loop Outer [held: i, r] {
+    i = add.i64(copy i, const 1)
+    t0: bool = gt.i64(copy i, copy limit)
+    if t0 {
+      break Outer
+    } else { } [held: i, r]
+    j: i64 = const 0
+    loop Inner [held: i, r, j] {
+      j = add.i64(copy j, const 1)
+      t1: bool = gt.i64(copy j, copy limit)
+      if t1 {
+        continue Outer
+      } else { } [held: i, r, j]
+      t2: i64 = mul.i64(copy i, copy j)
+      t3: bool = eq.i64(copy t2, copy target)
+      if t3 {
+        t4: i64 = mul.i64(copy i, const 100)
+        r = add.i64(copy t4, copy j)
+        break Outer
+      } else { } [held: i, r, j]
+    }
+  } [held: i, r]
+  return copy r
+}
+
+func classify(c: char) -> i64 {
+  switch c {
+    case 'a' {
+      return const 1
+    }
+    case 'я' {
+      return const 2
+    }
+    else {
+      return const 0
+    }
+  }
+}
+
+func sign(x: i32) -> i32 {
+  switch x {
+    case 0 {
+      return const 0
+    }
+    else { }
+  } [held:]
+  t: bool = lt.i32(copy x, const 0)
+  switch t {
+    case true {
+      return const -1
+    }
+    case false {
+      return const 1
+    }
+  }
+}
