@@ -59,10 +59,22 @@ struct Decls<'m> {
     structs: HashMap<&'m str, &'m StructDecl>,
     enums: HashMap<&'m str, &'m EnumDecl>,
     funcs: HashMap<&'m str, &'m Func>,
-    /// Номер варианта по имени у каждого перечисления: метки `switch` ищутся по ней, а не
-    /// перебором, иначе `switch` по большому перечислению проверяется за квадрат от числа
-    /// вариантов. При повторе имени — первый номер, как у перебора; повтор и так отвергается.
+    /// Номера по именам: поля каждой записи, варианты каждого перечисления и именованные поля
+    /// каждого варианта (пустая таблица у варианта без них). Имена ищутся по таблицам, а не
+    /// перебором: иначе запись или перечисление с N именами и N обращений к ним проверяются за
+    /// квадрат от N. При повторе имени — первый номер, как у перебора; повтор и так отвергается.
+    fields: HashMap<&'m str, HashMap<&'m str, usize>>,
     variants: HashMap<&'m str, HashMap<&'m str, usize>>,
+    payload_fields: HashMap<&'m str, Vec<HashMap<&'m str, usize>>>,
+}
+
+/// Номер по имени; при повторе — первый.
+fn index_by_name<'a>(names: impl Iterator<Item = &'a str>) -> HashMap<&'a str, usize> {
+    let mut index = HashMap::new();
+    for (i, name) in names.enumerate() {
+        index.entry(name).or_insert(i);
+    }
+    index
 }
 
 fn decl_err<T>(at: &str, message: String) -> R<T> {
@@ -117,7 +129,9 @@ impl<'m> Decls<'m> {
             structs: HashMap::new(),
             enums: HashMap::new(),
             funcs: HashMap::new(),
+            fields: HashMap::new(),
             variants: HashMap::new(),
+            payload_fields: HashMap::new(),
         };
         for decl in &m.decls {
             match decl {
@@ -126,17 +140,25 @@ impl<'m> Decls<'m> {
                         return decl_err("модуль", format!("тип {} объявлен дважды", s.name));
                     }
                     d.structs.insert(&s.name, s);
+                    d.fields.insert(
+                        &s.name,
+                        index_by_name(s.fields.iter().map(|f| f.name.as_str())),
+                    );
                 }
                 Decl::Enum(e) => {
                     if d.is_type(&e.name) {
                         return decl_err("модуль", format!("тип {} объявлен дважды", e.name));
                     }
                     d.enums.insert(&e.name, e);
-                    let mut index = HashMap::new();
-                    for (i, v) in e.variants.iter().enumerate() {
-                        index.entry(v.name.as_str()).or_insert(i);
-                    }
-                    d.variants.insert(&e.name, index);
+                    d.variants.insert(
+                        &e.name,
+                        index_by_name(e.variants.iter().map(|v| v.name.as_str())),
+                    );
+                    let payload = e.variants.iter().map(|v| match &v.payload {
+                        Payload::Fields(fs) => index_by_name(fs.iter().map(|f| f.name.as_str())),
+                        _ => HashMap::new(),
+                    });
+                    d.payload_fields.insert(&e.name, payload.collect());
                 }
                 Decl::Func(f) => {
                     if d.funcs.insert(&f.name, f).is_some() {
@@ -156,6 +178,22 @@ impl<'m> Decls<'m> {
         }
         d.no_recursion()?;
         Ok(d)
+    }
+
+    fn field(&self, record: &str, name: &str) -> Option<usize> {
+        self.fields.get(record)?.get(name).copied()
+    }
+
+    fn variant(&self, enumeration: &str, name: &str) -> Option<usize> {
+        self.variants.get(enumeration)?.get(name).copied()
+    }
+
+    fn payload_field(&self, enumeration: &str, variant: usize, name: &str) -> Option<usize> {
+        self.payload_fields
+            .get(enumeration)?
+            .get(variant)?
+            .get(name)
+            .copied()
     }
 
     fn is_type(&self, name: &str) -> bool {
@@ -845,7 +883,7 @@ impl<'d, 'm> Body<'d, 'm> {
                         .d
                         .structs
                         .get(n.as_str())
-                        .and_then(|s| s.fields.iter().position(|x| x.name == *f).map(|k| (s, k)))
+                        .zip(self.d.field(n, f))
                         .map(|(s, k)| (Step::Field(k), s.fields[k].ty.clone())),
                     (Seg::Pos(k), Type::Tuple(ts)) => ts
                         .get(*k as usize)
@@ -934,14 +972,14 @@ impl<'d, 'm> Body<'d, 'm> {
             let (step, next) = match (&p.path[i], &ty) {
                 (Seg::Field(f), Type::Named(n)) if self.d.structs.contains_key(n.as_str()) => {
                     let s = self.d.structs[n.as_str()];
-                    match s.fields.iter().position(|x| x.name == *f) {
+                    match self.d.field(n, f) {
                         Some(k) => (Step::Field(k), s.fields[k].ty.clone()),
                         None => return bad(),
                     }
                 }
                 (Seg::Field(v), Type::Named(n)) if self.d.enums.contains_key(n.as_str()) => {
                     let e = self.d.enums[n.as_str()];
-                    let vi = match e.variants.iter().position(|x| x.name == *v) {
+                    let vi = match self.d.variant(n, v) {
                         Some(vi) => vi,
                         None => return bad(),
                     };
@@ -971,7 +1009,7 @@ impl<'d, 'm> Body<'d, 'm> {
                     match (&e.variants[vi].payload, p.path.get(i)) {
                         (Payload::One(t), Some(Seg::Pos(0))) => (Step::Variant(vi, 0), t.clone()),
                         (Payload::Fields(fs), Some(Seg::Field(name))) => {
-                            match fs.iter().position(|x| x.name == *name) {
+                            match self.d.payload_field(n, vi, name) {
                                 Some(k) => (Step::Variant(vi, k), fs[k].ty.clone()),
                                 None => return bad(),
                             }
@@ -1223,13 +1261,20 @@ impl<'d, 'm> Body<'d, 'm> {
     }
 
     /// Поля по именам в порядке записи; каждое ровно один раз.
-    fn named_fields(&mut self, st: &mut St, fields: &[Field], args: &[Arg], what: &str) -> R<()> {
+    fn named_fields(
+        &mut self,
+        st: &mut St,
+        fields: &[Field],
+        index: &HashMap<&str, usize>,
+        args: &[Arg],
+        what: &str,
+    ) -> R<()> {
         let mut seen = vec![false; fields.len()];
         for a in args {
             let k = a
                 .name
                 .as_ref()
-                .and_then(|name| fields.iter().position(|f| f.name == *name));
+                .and_then(|name| index.get(name.as_str()).copied());
             match k {
                 Some(k) if !seen[k] => {
                     seen[k] = true;
@@ -1259,7 +1304,10 @@ impl<'d, 'm> Body<'d, 'm> {
                     None => return self.fail(format!("{}: нет такой записи", what)),
                 };
                 return match args {
-                    Some(args) => self.named_fields(st, &s.fields, args, &what),
+                    Some(args) => {
+                        let d = self.d;
+                        self.named_fields(st, &s.fields, &d.fields[ty], args, &what)
+                    }
                     None => self.fail(format!("{}: поля записи — в скобках", what)),
                 };
             }
@@ -1270,14 +1318,18 @@ impl<'d, 'm> Body<'d, 'm> {
             Some(e) => e,
             None => return self.fail(format!("{}: нет такого перечисления", what)),
         };
-        let var = match e.variants.iter().find(|v| v.name == vname) {
-            Some(v) => v,
+        let vi = match self.d.variant(ty, vname) {
+            Some(vi) => vi,
             None => return self.fail(format!("{}: нет такого варианта", what)),
         };
+        let var = &e.variants[vi];
         match (&var.payload, args) {
             (Payload::None, None) => Ok(()),
             (Payload::One(t), Some([a])) if a.name.is_none() => self.operand(st, &a.value, t),
-            (Payload::Fields(fs), Some(args)) => self.named_fields(st, fs, args, &what),
+            (Payload::Fields(fs), Some(args)) => {
+                let d = self.d;
+                self.named_fields(st, fs, &d.payload_fields[ty][vi], args, &what)
+            }
             _ => self.fail(format!(
                 "{}: значения не подходят к объявлению варианта",
                 what
@@ -1667,12 +1719,10 @@ impl<'d, 'm> Body<'d, 'm> {
         let mut seen: HashSet<String> = HashSet::new();
         for c in cases {
             let (key, vi) = match (&c.label, e, &ty) {
-                (CaseLabel::Variant(v), Some(e), _) => {
-                    match self.d.variants[e.name.as_str()].get(v.as_str()) {
-                        Some(&vi) => (v.clone(), Some(vi)),
-                        None => return self.fail(format!("case {}: такого варианта нет", v)),
-                    }
-                }
+                (CaseLabel::Variant(v), Some(e), _) => match self.d.variant(&e.name, v) {
+                    Some(vi) => (v.clone(), Some(vi)),
+                    None => return self.fail(format!("case {}: такого варианта нет", v)),
+                },
                 (CaseLabel::Value(Const::Int(n)), None, Type::Scalar(s))
                     if s.int_range().is_some() =>
                 {

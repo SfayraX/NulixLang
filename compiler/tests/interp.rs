@@ -1131,6 +1131,7 @@ fn invalid_ir_stops_with_a_reason() {
     let cases: Vec<(&str, Vec<Value>, &str)> = vec![
         ("read_empty", vec![], "нет значения"),
         ("copy_owned", vec![], "не простой"),
+        ("copy_tuple_owned", vec![], "не простой"),
         ("overwrite", vec![], "сначала drop"),
         ("leak", vec![], "не отдано и не уничтожено"),
         ("half_leak", vec![], "значение в p не отдано"),

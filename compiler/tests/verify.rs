@@ -194,6 +194,8 @@ fn the_interpreter_runs_what_the_verifier_accepts() {
 const INVALID_CASES: &[(&str, &str)] = &[
     ("read_empty", "copy x: значения нет"),
     ("copy_owned", "copy t: тип Token не простой"),
+    // найдено прогоном ослаблений из внешней оценки проверщика 21 ноября 2026
+    ("copy_tuple_owned", "copy t: тип (i64, Token) не простой"),
     ("overwrite", "в t ещё есть непростое значение: сначала drop"),
     ("leak", "значение в t не отдано и не уничтожено"),
     ("half_leak", "значение в p.1 не отдано и не уничтожено"),
