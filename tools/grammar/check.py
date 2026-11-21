@@ -2,9 +2,10 @@
 
 1. Строит LALR(1)-разборщик в строгом режиме: любой конфликт — ошибка.
 2. Разбирает фрагменты из спецификации (grammar/fragments.tsv).
-3. Проверяет, что каждый фрагмент раздела «Синтаксис» учтён (список — grammar/spans.tsv, его создаёт spans.py).
+3. Проверяет, что учтён каждый фрагмент спецификации (список — grammar/spans.tsv, его создаёт spans.py).
 4. Разбирает тестовые программы (grammar/samples/*.nx) и отрицательные примеры (grammar/negative.tsv).
 Запуск: python3 check.py <папка grammar> [-v]
+Код возврата 1, если что-то не разобрано, не учтено или ошибочно принято.
 """
 import glob, os, re, sys
 from lark import Lark
@@ -56,8 +57,7 @@ print(f"фрагменты спецификации: разобрано {len(tab
 for orig, start, text, err in bad:
     print(f"  НЕ РАЗОБРАН [{start}] {orig!r} как {text!r}: {err}")
 
-# ── 3. полнота: все фрагменты раздела 12 «Синтаксис» по списку grammar/spans.tsv ──
-SYNTAX = "12"   # номер раздела «Синтаксис» в spec/nulix.md; номера разделов не меняются
+# ── 3. полнота: все фрагменты спецификации по списку grammar/spans.tsv ──
 lexer = nxlex.NxLexer.__new__(nxlex.NxLexer)
 lexer.lit = {t.pattern.value: t.name for t in parser.terminals if t.pattern is not None}
 lexer.words = set(words)
@@ -67,8 +67,8 @@ for ln in open(os.path.join(G, "spans.tsv"), encoding="utf-8"):
     ln = ln.rstrip("\n")
     if not ln or ln.startswith("#"):
         continue
-    place, frag = ln.split("\t", 1)
-    if place.split(".")[0] != SYNTAX or frag in seen:
+    frag = ln.split("\t", 1)[1]
+    if frag in seen:
         continue
     seen.add(frag)
     if frag in table or frag in skip:
@@ -83,7 +83,7 @@ for ln in open(os.path.join(G, "spans.tsv"), encoding="utf-8"):
     else:
         missing.append(frag)
 kw_in_spec = sorted(f for f, k in single.items() if k == "ключевое слово")
-print(f"раздел «Синтаксис»: разных фрагментов {len(seen)}; одиночных лексем {len(single)} "
+print(f"вся спецификация: разных фрагментов {len(seen)}; одиночных лексем {len(single)} "
       f"(ключевых слов {len(kw_in_spec)}); не учтено {len(missing)}")
 for f in missing:
     print(f"  НЕ УЧТЁН: {f!r}")
@@ -115,3 +115,4 @@ if os.path.exists(npath):
     print(f"отрицательные примеры: отвергнуто {neg - len(wrong)} из {neg}")
     for start, text in wrong:
         print(f"  ОШИБОЧНО ПРИНЯТ [{start}] {text!r}")
+sys.exit(1 if bad or missing or ok < len(files) or wrong else 0)
