@@ -59,6 +59,10 @@ struct Decls<'m> {
     structs: HashMap<&'m str, &'m StructDecl>,
     enums: HashMap<&'m str, &'m EnumDecl>,
     funcs: HashMap<&'m str, &'m Func>,
+    /// Номер варианта по имени у каждого перечисления: метки `switch` ищутся по ней, а не
+    /// перебором, иначе `switch` по большому перечислению проверяется за квадрат от числа
+    /// вариантов. При повторе имени — первый номер, как у перебора; повтор и так отвергается.
+    variants: HashMap<&'m str, HashMap<&'m str, usize>>,
 }
 
 fn decl_err<T>(at: &str, message: String) -> R<T> {
@@ -113,6 +117,7 @@ impl<'m> Decls<'m> {
             structs: HashMap::new(),
             enums: HashMap::new(),
             funcs: HashMap::new(),
+            variants: HashMap::new(),
         };
         for decl in &m.decls {
             match decl {
@@ -127,6 +132,11 @@ impl<'m> Decls<'m> {
                         return decl_err("модуль", format!("тип {} объявлен дважды", e.name));
                     }
                     d.enums.insert(&e.name, e);
+                    let mut index = HashMap::new();
+                    for (i, v) in e.variants.iter().enumerate() {
+                        index.entry(v.name.as_str()).or_insert(i);
+                    }
+                    d.variants.insert(&e.name, index);
                 }
                 Decl::Func(f) => {
                     if d.funcs.insert(&f.name, f).is_some() {
@@ -1658,8 +1668,8 @@ impl<'d, 'm> Body<'d, 'm> {
         for c in cases {
             let (key, vi) = match (&c.label, e, &ty) {
                 (CaseLabel::Variant(v), Some(e), _) => {
-                    match e.variants.iter().position(|x| x.name == *v) {
-                        Some(vi) => (v.clone(), Some(vi)),
+                    match self.d.variants[e.name.as_str()].get(v.as_str()) {
+                        Some(&vi) => (v.clone(), Some(vi)),
                         None => return self.fail(format!("case {}: такого варианта нет", v)),
                     }
                 }

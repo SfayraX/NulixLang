@@ -496,6 +496,8 @@ fn declarations_are_checked() {
         ),
         ("func f() uses (fs) { }", "требований uses на шаге 2 нет"),
         ("struct A { }\n\nenum A { }", "тип A объявлен дважды"),
+        // повтор имени записи; найдено внешней оценкой проверщика 20 ноября 2026
+        ("struct A { }\n\nstruct A { }", "тип A объявлен дважды"),
         ("func f() { }\n\nfunc f() { }", "функция f объявлена дважды"),
     ];
     for (text, fragment) in cases {
@@ -560,6 +562,33 @@ fn what_text_cannot_express_is_checked() {
         }
     }
     assert!(matches!(verify(&m), Err(e) if e.message.contains("make P: поля записи — в скобках")));
+    // Дробная константа — только конечная: бесконечность и NaN читатель не пропустит, но модуль
+    // можно собрать программно. Найдено внешней оценкой проверщика 20 ноября 2026.
+    for (ty, bits) in [
+        ("f64", f64::NAN.to_bits()),
+        ("f64", f64::INFINITY.to_bits()),
+        ("f64", f64::NEG_INFINITY.to_bits()),
+        ("f32", f64::INFINITY.to_bits()),
+    ] {
+        let mut m = module(&format!(
+            "ir 1\n\nfunc f() -> {ty} {{\n  x: {ty} = const 1.5\n  return copy x\n}}\n"
+        ));
+        if let Decl::Func(f) = &mut m.decls[0] {
+            if let Stmt::Define {
+                value: Rhs::Use(Operand::Const(Const::Float(b))),
+                ..
+            } = &mut f.body.stmts[0]
+            {
+                *b = bits;
+            }
+        }
+        assert!(
+            matches!(verify(&m), Err(e) if e.message.contains("дробная константа должна быть конечной")),
+            "{} {:x}",
+            ty,
+            bits
+        );
+    }
 }
 
 /// Каждое имя записывается текстом IR. Проверяются имена объявлений — остальные имена ведут к
