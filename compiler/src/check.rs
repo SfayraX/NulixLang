@@ -165,10 +165,10 @@ impl<'a> Checker<'a> {
             }
             ast::DeclKind::Func(func) => self.func_decl(func),
             ast::DeclKind::ExternBlock(_) => outside(decl.line, "extern"),
-            ast::DeclKind::Struct(s) => self.struct_decl(s, decl.line),
-            ast::DeclKind::Enum(e) => self.enum_decl(e, decl.line),
+            ast::DeclKind::Struct(s) => self.struct_decl(s),
+            ast::DeclKind::Enum(e) => self.enum_decl(e),
             ast::DeclKind::Interface(_) => outside(decl.line, "interface"),
-            ast::DeclKind::Impl(i) => self.impl_decl(i, decl.line),
+            ast::DeclKind::Impl(i) => self.impl_decl(i),
             ast::DeclKind::TypeAlias(_) => outside(decl.line, "type"),
             ast::DeclKind::Test(t) => self.test_decl(t, decl.line),
         }
@@ -222,7 +222,8 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn struct_decl(&mut self, s: &'a ast::StructDecl, line: u32) -> R<()> {
+    fn struct_decl(&mut self, s: &'a ast::StructDecl) -> R<()> {
+        let line = s.line;
         if !s.generics.is_empty() {
             return outside(line, "обобщения");
         }
@@ -252,7 +253,8 @@ impl<'a> Checker<'a> {
         self.declare_type(&s.name, line, TypeSource::Struct(s))
     }
 
-    fn enum_decl(&mut self, e: &'a ast::EnumDecl, line: u32) -> R<()> {
+    fn enum_decl(&mut self, e: &'a ast::EnumDecl) -> R<()> {
+        let line = e.line;
         if !e.generics.is_empty() {
             return outside(line, "обобщения");
         }
@@ -292,7 +294,8 @@ impl<'a> Checker<'a> {
 
     /// Из реализаций в шаге 2 есть только `impl Copy for T {}` (12.27). Тип после `for`
     /// разрешается, когда объявлены все имена: порядок объявлений в файле не важен.
-    fn impl_decl(&mut self, i: &'a ast::ImplDecl, line: u32) -> R<()> {
+    fn impl_decl(&mut self, i: &'a ast::ImplDecl) -> R<()> {
+        let line = i.line;
         let target = match &i.for_type {
             Some(target)
                 if i.generics.is_empty()

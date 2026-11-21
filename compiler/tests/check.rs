@@ -467,6 +467,21 @@ const REJECTED: &[(&str, u32, &str)] = &[
         4,
         "имя f уже объявлено в строке 1",
     ),
+    (
+        "struct A {\n}\n@system\npub struct A {\n}\n",
+        4,
+        "имя A уже объявлено в строке 1",
+    ),
+    (
+        "@high\nenum E {\n} end F\n",
+        2,
+        "метка end F не совпадает с именем перечисления E",
+    ),
+    (
+        "struct P {\n}\n@system\nimpl Copy for P {\n\tfunc f() {\n\t}\n}\n",
+        4,
+        "impl Copy for P пишется пустым (12.27)",
+    ),
     // встроенные типы (решение 10и)
     ("struct i64 {\n}\n", 1, "имя i64 занято встроенным типом"),
     ("enum Never {\n}\n", 1, "имя Never занято встроенным типом"),

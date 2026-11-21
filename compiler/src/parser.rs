@@ -914,6 +914,7 @@ impl Parser {
     }
 
     fn struct_decl(&mut self) -> Res<StructDecl> {
+        let line = self.line();
         self.expect("struct")?;
         let name = self.name()?;
         let generics = if self.at("[") {
@@ -939,6 +940,7 @@ impl Parser {
             generics,
             fields,
             end,
+            line,
         })
     }
 
@@ -965,6 +967,7 @@ impl Parser {
     }
 
     fn enum_decl(&mut self) -> Res<EnumDecl> {
+        let line = self.line();
         self.expect("enum")?;
         let name = self.name()?;
         let generics = if self.at("[") {
@@ -990,6 +993,7 @@ impl Parser {
             generics,
             variants,
             end,
+            line,
         })
     }
 
@@ -1056,6 +1060,7 @@ impl Parser {
     }
 
     fn impl_decl(&mut self) -> Res<ImplDecl> {
+        let line = self.line();
         self.expect("impl")?;
         let generics = if self.at("[") {
             self.generics()?
@@ -1088,6 +1093,7 @@ impl Parser {
             for_type,
             members,
             end,
+            line,
         })
     }
 
