@@ -247,16 +247,80 @@ func sum_width(s: Shape, n: i64) -> f64 {
   return copy acc
 }
 
-func swap(a: i64 mut, b: i64 mut) {
+func `swap`(a: i64 mut, b: i64 mut) {
   t: i64 = copy a
   a = copy b
   b = copy t
 }
 
+; swap меняет местами значения двух мест; так заменяют непростой элемент массива и непростую
+; часть параметра mut — их нельзя забрать, а swap не оставляет места пустым
+func swap_tokens(xs: Array[Token, 2] mut) {
+  swap xs[0], xs[1]
+}
+
+func replace_a(p: Pair mut, t: Token take) {
+  swap p.a, t
+  drop t
+}
+
+func reverse3(xs: Array[Token, 3] mut) {
+  i: i64 = const 0
+  j: i64 = const 2
+  swap xs[i], xs[j]
+}
+
+func use_swap_instr() -> i64 {
+  t1: Token = make Token(id: const 1)
+  t2: Token = make Token(id: const 2)
+  xs: Array[Token, 2] = array(move t1, move t2)
+  call swap_tokens(borrow mut xs)
+  r0: i64 = copy xs[0].id
+  drop xs
+  p: Pair = call pair(const 3, const 4)
+  t3: Token = make Token(id: const 5)
+  call replace_a(borrow mut p, move t3)
+  r1: i64 = copy p.a.id
+  drop p
+  t: i64 = mul.i64(copy r0, const 10)
+  r: i64 = add.i64(copy t, copy r1)
+  return copy r
+}
+
+; часть значения, из которого что-то забрано, тоже меняют через swap
+func swap_rest() -> i64 {
+  p: Pair = call pair(const 1, const 2)
+  a: Token = move p.a
+  t: Token = make Token(id: const 7)
+  swap p.b, t
+  r: i64 = copy p.b.id
+  drop a
+  drop t
+  drop p
+  return copy r
+}
+
+func use_reverse() -> i64 {
+  t1: Token = make Token(id: const 1)
+  t2: Token = make Token(id: const 2)
+  t3: Token = make Token(id: const 3)
+  xs: Array[Token, 3] = array(move t1, move t2, move t3)
+  call reverse3(borrow mut xs)
+  a: i64 = copy xs[0].id
+  b: i64 = copy xs[1].id
+  c: i64 = copy xs[2].id
+  drop xs
+  x: i64 = mul.i64(copy a, const 100)
+  y: i64 = mul.i64(copy b, const 10)
+  s: i64 = add.i64(copy x, copy y)
+  r: i64 = add.i64(copy s, copy c)
+  return copy r
+}
+
 ; элементы с разными числами-номерами не пересекаются: их можно одолжить в одном вызове
 func swap_ends() -> i64 {
   xs: Array[i64, 3] = array(const 1, const 2, const 3)
-  call swap(borrow mut xs[0], borrow mut xs[2])
+  call `swap`(borrow mut xs[0], borrow mut xs[2])
   t0: i64 = copy xs[0]
   t2: i64 = copy xs[2]
   t: i64 = mul.i64(copy t0, const 10)

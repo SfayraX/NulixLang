@@ -82,17 +82,18 @@ func fill(buf: Array[u8, 4] mut, v: u8) {
   return
 }
 
-func swap(p: Pair mut) {
+func `swap`(p: Pair mut) {
   t0: i64 = copy p.a
   p.a = copy p.b
   p.b = copy t0
+  swap p.a, p.b
 }
 
 func pack(p: Point take, d: Dir) -> (Point, Pair, Dir) {
   local q: Pair
   q = make Pair(a: const 1, b: const -2)
   q.b = neg.i64(copy q.a)
-  call swap(borrow mut q)
+  call `swap`(borrow mut q)
   t0: (Point, Pair, Dir) = tuple(move p, copy q, copy d)
   return move t0
 }
@@ -243,6 +244,7 @@ fn errors_name_the_line() {
             "у кортежа не меньше двух элементов",
         ),
         ("ir 1\n\nfunc f() {\n  x: u8 = foo\n}\n", 4, "ожидалось: значение"),
+        ("ir 1\n\nfunc f() {\n  swap a b\n}\n", 4, "ожидалось: «,»"),
         ("ir 1\n\nfunc f() {\n  x: u8 = copy u8\n}\n", 4, "«u8» — слово текстовой формы"),
         (
             "ir 1\n\nfunc f() {\n  switch x {\n    case 1.5 { }\n  }\n}\n",
@@ -358,6 +360,7 @@ const NAMES: &[&str] = &[
     "take",
     "local",
     "drop",
+    "swap",
     "call",
     "if",
     "else",
@@ -717,7 +720,13 @@ fn stmt(r: &mut Rng, depth: u32) -> Stmt {
                 value: rhs(r),
             }
         }
-        3 => Stmt::Drop(place(r)),
+        3 => {
+            if r.one_in(2) {
+                Stmt::Drop(place(r))
+            } else {
+                Stmt::Swap(place(r), place(r))
+            }
+        }
         4 => {
             let func = func_name(r);
             let n = r.below(3);

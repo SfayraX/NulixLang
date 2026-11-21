@@ -704,3 +704,118 @@ func shift_count_bool() -> i64 {
   r: i64 = shl.i64(copy x, const true)
   return copy r
 }
+
+; swap: в одном месте нет значения
+func swap_empty() {
+  local t: Token
+  u: Token = make Token(id: const 1)
+  swap t, u
+  drop t
+  drop u
+}
+
+; swap: из значения что-то перемещено
+func swap_partial() {
+  t1: Token = make Token(id: const 1)
+  t2: Token = make Token(id: const 2)
+  p: Pair = make Pair(a: move t1, b: move t2)
+  t3: Token = make Token(id: const 3)
+  t4: Token = make Token(id: const 4)
+  q: Pair = make Pair(a: move t3, b: move t4)
+  t: Token = move p.a
+  swap p, q
+  drop t
+  drop p
+  drop q
+}
+
+; swap: параметр для чтения не пишут
+func swap_read_param(t: Token) {
+  u: Token = make Token(id: const 1)
+  swap t, u
+  drop u
+}
+
+; swap: места разных типов
+func swap_types() {
+  t: Token = make Token(id: const 1)
+  o: Other = make Other(id: const 2)
+  swap t, o
+  drop t
+  drop o
+}
+
+; после swap вариант места неизвестен
+func stale_after_swap() -> i64 {
+  d: Dir = make Dir.Left(const 1)
+  e: Dir = make Dir.Right(const 2)
+  switch d {
+    case Left {
+      swap d, e
+      r: i64 = copy d.Left.0
+      return copy r
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+; в цикле swap переписывает место
+func stale_swap_in_loop() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  e: Dir = make Dir.Right(const 7)
+  i: i64 = const 0
+  switch d {
+    case Left {
+      loop L [held: d, e, i] {
+        v: i64 = copy d.Left.0
+        swap d, e
+        i = add.i64(copy i, const 1)
+        c: bool = ge.i64(copy i, const 2)
+        if c {
+          break L
+        } else { } [held: d, e, i]
+      } [held: d, e, i]
+    }
+    case Right { }
+  } [held: d, e, i]
+  return copy i
+}
+
+; то же, когда место — второе в swap
+func stale_after_swap_second() -> i64 {
+  d: Dir = make Dir.Left(const 1)
+  e: Dir = make Dir.Right(const 2)
+  switch d {
+    case Left {
+      swap e, d
+      r: i64 = copy d.Left.0
+      return copy r
+    }
+    case Right {
+      return const 0
+    }
+  }
+}
+
+func stale_swap_second_in_loop() -> i64 {
+  d: Dir = make Dir.Left(const 5)
+  e: Dir = make Dir.Right(const 7)
+  i: i64 = const 0
+  switch d {
+    case Left {
+      loop L [held: d, e, i] {
+        v: i64 = copy d.Left.0
+        swap e, d
+        i = add.i64(copy i, const 1)
+        c: bool = ge.i64(copy i, const 2)
+        if c {
+          break L
+        } else { } [held: d, e, i]
+      } [held: d, e, i]
+    }
+    case Right { }
+  } [held: d, e, i]
+  return copy i
+}

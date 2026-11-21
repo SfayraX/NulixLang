@@ -465,8 +465,8 @@ fn index_vars(p: &Place) -> impl Iterator<Item = &str> {
     })
 }
 
-/// Места, которые блок может переписать: записи, определения и места, отданные вызову для
-/// изменения. Опустошение — `move`, `drop`, `local` — вариант не меняет: пустое место не
+/// Места, которые блок может переписать: записи, определения, оба места `swap` и места, отданные
+/// вызову для изменения. Опустошение — `move`, `drop`, `local` — вариант не меняет: пустое место не
 /// читается, а наполнить его снова можно только записью или определением.
 fn written(b: &Block, out: &mut Vec<Place>) {
     fn lent(r: &Rhs, out: &mut Vec<Place>) {
@@ -493,6 +493,10 @@ fn written(b: &Block, out: &mut Vec<Place>) {
             Stmt::Assign { place, value } => {
                 lent(value, out);
                 out.push(place.clone());
+            }
+            Stmt::Swap(a, b) => {
+                out.push(a.clone());
+                out.push(b.clone());
             }
             Stmt::Call { args, .. } => lent_args(args, out),
             Stmt::If {
@@ -1509,6 +1513,7 @@ impl<'d, 'm> Body<'d, 'm> {
                 });
             }
             Stmt::Assign { place, value } => self.assign(st, place, value)?,
+            Stmt::Swap(a, b) => self.swap(st, a, b)?,
             Stmt::Drop(place) => {
                 let (steps, _) = self.resolve(st, place)?;
                 self.owned(place, "drop")?;
@@ -1675,6 +1680,44 @@ impl<'d, 'm> Body<'d, 'm> {
             }
         }
         self.kill_facts(place);
+        Ok(())
+    }
+
+    /// `swap a, b`: значения двух мест одного типа меняются местами, и ни одно место не пустеет,
+    /// поэтому так заменяют непростой элемент массива и непростую часть параметра `mut`.
+    /// Состояние владения не меняется; варианты обоих мест становятся неизвестны.
+    fn swap(&mut self, st: &mut St, a: &Place, b: &Place) -> R<()> {
+        let text = format!("swap {}, {}", ir_text::place(a), ir_text::place(b));
+        // номера элементов обоих мест читаются слева направо
+        let (sa, ta) = self.resolve(st, a)?;
+        let (sb, tb) = self.resolve(st, b)?;
+        if ta != tb {
+            return self.fail(format!(
+                "{}: типы {} и {} разные",
+                text,
+                ir_text::ty(&ta),
+                ir_text::ty(&tb)
+            ));
+        }
+        for (p, steps) in [(a, &sa), (b, &sb)] {
+            if self.modes.get(&p.base) == Some(&Mode::Read) {
+                return self.fail(format!("{}: {} — параметр для чтения", text, p.base));
+            }
+            // элемент массива держится вместе с массивом: на месте весь путь до массива
+            let upto = steps
+                .iter()
+                .position(|s| *s == Step::Elem)
+                .unwrap_or(steps.len());
+            if self.get(st, &p.base, &steps[..upto]) != Held::Full {
+                return self.fail(format!(
+                    "{}: в {} нет значения целиком",
+                    text,
+                    ir_text::place(p)
+                ));
+            }
+        }
+        self.kill_facts(a);
+        self.kill_facts(b);
         Ok(())
     }
 
