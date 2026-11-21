@@ -878,6 +878,26 @@ impl<'p, 'm> Machine<'p, 'm> {
                 }
                 *slot = None;
             }
+            Stmt::Swap(a, b) => {
+                // номера элементов обоих мест читаются слева направо, границы проверяются до обмена
+                let (sa, ta) = self.resolve(frame, a, true)?;
+                let (sb, tb) = self.resolve(frame, b, true)?;
+                if ta != tb {
+                    return invalid(format!(
+                        "swap {}, {}: типы {} и {} разные",
+                        ir_text::place(a),
+                        ir_text::place(b),
+                        ir_text::ty(&ta),
+                        ir_text::ty(&tb)
+                    ));
+                }
+                let va = Self::swap_side(frame, a, &sa)?;
+                let vb = Self::swap_side(frame, b, &sb)?;
+                for (p, steps, v) in [(a, &sa, vb), (b, &sb, va)] {
+                    let var = frame.vars.get_mut(&p.base).expect("место прочитано выше");
+                    *walk(&mut var.slot, steps, p)? = Some(v);
+                }
+            }
             Stmt::Call { func, args } => {
                 let f = self.func(func)?;
                 if f.result != Type::Unit && !self.prog.is_never(&f.result) {
@@ -1084,6 +1104,22 @@ impl<'p, 'm> Machine<'p, 'm> {
             ));
         }
         Ok(var)
+    }
+
+    /// Сторона `swap`: место можно писать, и в нём значение целиком.
+    fn swap_side(frame: &mut Frame, p: &Place, steps: &[Step]) -> Result<Value, Stop> {
+        let var = match frame.vars.get_mut(&p.base) {
+            Some(var) if var.mode == Some(Mode::Read) => {
+                return invalid(format!(
+                    "swap {}: {} — параметр для чтения",
+                    ir_text::place(p),
+                    p.base
+                ))
+            }
+            Some(var) => var,
+            None => return invalid(format!("нет переменной {}", p.base)),
+        };
+        Self::whole(walk(&mut var.slot, steps, p)?, p)
     }
 
     /// Значение целиком, без перемещённых частей.

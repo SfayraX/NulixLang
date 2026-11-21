@@ -12,8 +12,8 @@ use crate::lexer::{ident_cont, ident_start};
 
 /// Слова текстовой формы. Имена с таким написанием пишутся в обратных кавычках.
 const WORDS: &[&str] = &[
-    "ir", "struct", "enum", "copy", "func", "test", "uses", "mut", "take", "local", "drop", "call",
-    "if", "else", "switch", "case", "loop", "break", "continue", "return", "crash", "move",
+    "ir", "struct", "enum", "copy", "func", "test", "uses", "mut", "take", "local", "drop", "swap",
+    "call", "if", "else", "switch", "case", "loop", "break", "continue", "return", "crash", "move",
     "borrow", "const", "make", "tuple", "array", "conv", "held", "true", "false", "Array",
 ];
 
@@ -173,6 +173,7 @@ fn stmt(s: &Stmt, level: usize) -> String {
         } => format!("{}: {} = {}", name(n), ty(t), rhs(value)),
         Stmt::Assign { place: p, value } => format!("{} = {}", place(p), rhs(value)),
         Stmt::Drop(p) => format!("drop {}", place(p)),
+        Stmt::Swap(a, b) => format!("swap {}, {}", place(a), place(b)),
         Stmt::Call { func, args } => format!("call {}({})", func_name(func), join(args, operand)),
         Stmt::If {
             cond,
@@ -995,6 +996,12 @@ impl Parser {
         }
         if self.eat_word("drop") {
             return Ok(Stmt::Drop(self.place()?));
+        }
+        if self.eat_word("swap") {
+            let a = self.place()?;
+            self.expect_punct(",")?;
+            let b = self.place()?;
+            return Ok(Stmt::Swap(a, b));
         }
         if self.eat_word("call") {
             let (func, args) = self.call_tail()?;

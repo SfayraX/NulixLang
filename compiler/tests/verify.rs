@@ -322,6 +322,23 @@ const INVALID_CASES: &[(&str, &str)] = &[
         "make Opt.Yes: значения не подходят к объявлению варианта",
     ),
     ("shift_count_bool", "величина сдвига — целое"),
+    ("swap_empty", "swap t, u: в t нет значения целиком"),
+    ("swap_partial", "swap p, q: в p нет значения целиком"),
+    ("swap_read_param", "swap t, u: t — параметр для чтения"),
+    ("swap_types", "swap t, o: типы Token и Other разные"),
+    ("stale_after_swap", "d.Left.0: вариант в d здесь неизвестен"),
+    (
+        "stale_swap_in_loop",
+        "d.Left.0: вариант в d здесь неизвестен",
+    ),
+    (
+        "stale_after_swap_second",
+        "d.Left.0: вариант в d здесь неизвестен",
+    ),
+    (
+        "stale_swap_second_in_loop",
+        "d.Left.0: вариант в d здесь неизвестен",
+    ),
 ];
 
 #[test]
@@ -453,6 +470,10 @@ const REJECTED_CASES: &[(&str, &str)] = &[
         "x — параметр, объявить его заново нельзя",
     ),
     ("tuple_shape", "кортеж не подходит к типу (i64, bool)"),
+    (
+        "swap_unknown_variant",
+        "o.Yes.0: вариант в o здесь неизвестен",
+    ),
 ];
 
 #[test]

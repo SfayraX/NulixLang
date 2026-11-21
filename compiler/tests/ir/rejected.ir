@@ -29,7 +29,7 @@ func look(t: Token, p: Pair mut) { }
 
 func both(a: Token mut, b: Token mut) { }
 
-func swap(a: i64 mut, b: i64 mut) { }
+func `swap`(a: i64 mut, b: i64 mut) { }
 
 ; ── недостижимое ──
 
@@ -271,12 +271,12 @@ func lend_same_twice() {
 
 func lend_unknown_elements(i: i64) {
   xs: Array[i64, 3] = array(const 1, const 2, const 3)
-  call swap(borrow mut xs[0], borrow mut xs[i])
+  call `swap`(borrow mut xs[0], borrow mut xs[i])
 }
 
 func lend_same_element() {
   xs: Array[i64, 3] = array(const 1, const 2, const 3)
-  call swap(borrow mut xs[1], borrow mut xs[1])
+  call `swap`(borrow mut xs[1], borrow mut xs[1])
 }
 
 ; ── массивы ──
@@ -411,4 +411,12 @@ func redeclare_param(x: i64) {
 
 func tuple_shape() {
   t: (i64, bool) = tuple(const 1, const true, const 2)
+}
+
+; swap: путь через вариант, который здесь неизвестен
+func swap_unknown_variant(o: Opt take) {
+  t: Token = make Token(id: const 1)
+  swap o.Yes.0, t
+  drop t
+  drop o
 }

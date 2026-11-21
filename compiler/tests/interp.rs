@@ -1001,6 +1001,9 @@ fn records_variants_arrays_and_parameter_modes() {
         Ok(Value::F64(0.0))
     );
     assert_eq!(call(&m, "swap_ends", vec![]), Ok(i64v(31)));
+    assert_eq!(call(&m, "use_swap_instr", vec![]), Ok(i64v(25)));
+    assert_eq!(call(&m, "use_reverse", vec![]), Ok(i64v(321)));
+    assert_eq!(call(&m, "swap_rest", vec![]), Ok(i64v(7)));
     let left = |n: i64| Value::Enum("Dir".to_string(), 0, vec![Some(i64v(n))]);
     let right = Value::Enum("Dir".to_string(), 1, vec![Some(i64v(1))]);
     assert_eq!(
@@ -1237,6 +1240,18 @@ fn invalid_ir_stops_with_a_reason() {
             "значения не подходят к объявлению варианта",
         ),
         ("shift_count_bool", vec![], "величина сдвига — целое"),
+        ("swap_empty", vec![], "в t нет значения"),
+        ("swap_partial", vec![], "в p часть значения перемещена"),
+        (
+            "swap_read_param",
+            vec![Value::Struct("Token".to_string(), vec![Some(i64v(1))])],
+            "t — параметр для чтения",
+        ),
+        ("swap_types", vec![], "типы Token и Other разные"),
+        ("stale_after_swap", vec![], "другой вариант"),
+        ("stale_swap_in_loop", vec![], "другой вариант"),
+        ("stale_after_swap_second", vec![], "другой вариант"),
+        ("stale_swap_second_in_loop", vec![], "другой вариант"),
     ];
     for (func, args, fragment) in cases {
         invalid_with(call(&m, func, args), fragment);
