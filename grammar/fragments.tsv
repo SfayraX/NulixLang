@@ -192,6 +192,94 @@ Eq and Hash	bound
 for x in v	stmt	for x in v { }
 Router[uses (net, suspend, heap)]	type	
 target(lm3s6965)	file_header	@file(production, target(lm3s6965))
+# фрагменты других разделов спецификации — добавлены 21 ноября 2026, когда полнота стала проверяться по всей спецификации
+tools/spec/numbers.py	-	путь к файлу, не код
+ui.run	expr	
+ui.Each	expr	
+ui.Input	expr	
+ui.Button	expr	
+ui.IconButton	expr	
+MIN / -1	expr	
+MIN % -1	expr	
+0/0	expr	
+Rect(w: …, h: …)	expr	Rect(w: 1, h: 2)
+a[i] = f()	stmt	
+f()	expr	
+-> Never	sig_tail	
+task.shield(f)	expr	
+task.with_cleanup(work, cleanup)	expr	
+limit stack <= N	reqs	
+limit stack	type	func() limit stack <= 64
+extern … trust …	decl	extern "C" trust "обоснование" { }
+any func	type	any func()
+a & mask == 0	expr	
+(a & mask) == 0	expr	
+try f() + try g()	expr	
+x + f() catch { 0 }	expr	
+x + (f() catch { 0 })	expr	
+end func	expr	func(x) { } end func
+}	-	знак: закрывает блок
+[	-	знак: открывающая квадратная скобка
+(	-	знак: открывающая скобка
+func test() { … } end test	decl	func test() { } end test
+(A, B)	type	
+(a, b)	expr	
+(x, y)	pattern	
+let (a, b) = …	stmt	let (a, b) = p
+for (k, v) in …	stmt	for (k, v) in m { }
+left: Num(n)	pattern	Bin(left: Num(n), right: _)
+func(mut model: Model, msg: Msg)	type	
+end while	stmt	while c { } end while
+end loop	stmt	loop { } end loop
+end case	expr	match x { case A { } end case }
+end else	expr	match x { case A { } else { } end else }
+end catch	expr	f() catch { } end catch
+end test	decl	test "имя" { } end test
+end trust	expr	trust "обоснование" { } end trust
+end provide	expr	provide fs = disk { } end provide
+end target	expr	target { case x86.sse4_2 { } } end target
+end extern	decl	extern "C" trust "обоснование" { } end extern
+end @low	stmt	@low { } end @low
+)	-	знак: закрывающая скобка
+]	-	знак: закрывающая квадратная скобка
++ - * / %	expr	a + b - c * d / e % f
+== != < <= > >=	stmts	let p = a == b\nlet q = a != b\nlet r = a < b\nlet s = a <= b\nlet t = a > b\nlet u = a >= b
++= -= *= /= %= &= |= ^= <<= >>=	stmts	a += 1\na -= 1\na *= 2\na /= 2\na %= 3\na &= m\na |= m\na ^= m\na <<= 1\na >>= 1
+\n \t \r \0 \\ \" \' \$ \u{…}	expr	"\t \r \0 \\ \" \' \$ \u{41}"
+$имя	expr	"$имя"
+-> (func(B) -> C) uses net	sig_tail	
+@file(production, target(имя))	file_header	
+ref(self) T	type	
+for … in	stmt	for x in xs { }
+provide имя =	expr	provide имя = disk { }
+limit имя <=	decl	func f() limit stack <= 64 { }
+${…}	expr	"${a + b}"
+a + b + c	expr	
+x.f().g()	expr	
+f(x)	expr	
+a[i]	expr	
+a.b	expr	
+dyn Trait + Send + Sync	-	запись Rust, не Nulix
+task.checkpoint	expr	
+List.sort_by	expr	
+task.scope_limited	expr	
+c.CString	expr	
+modules.load	expr	
+task.background	expr	
+gpu.Position	expr	
+dom.next_frame	expr	
+device.run	expr	
+ui.View	expr	
+ui.Task	expr	
+ui.task	expr	
+ui.none	expr	
+ui.lazy	expr	
+catch err	expr	f() catch err { }
+match take	expr	match take x { }
+end имя	decl	func имя() { } end имя
+func match() { … } end match	-	сейчас не разбирается — открытый вопрос 16.38
+impl Интерфейс for Тип	decl	impl Интерфейс for Тип { }
+xs.get(0)	expr	
 # примеры к решениям от 15 ноября 2026 (не из текста спецификации)
 + xs.any(f)	expr	xs.any(f)
 + xs.take(3)	expr	xs.take(3)
