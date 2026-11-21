@@ -60,6 +60,7 @@
 9.36	break
 9.36	Never
 9.36	-> Never
+9.36	Never
 9.38	s.spawn
 9.38	task.race
 9.38	task.timeout
@@ -163,6 +164,11 @@
 12.14	x: i64
 12.15	func имя(параметры) -> Результат { … }
 12.15	return
+12.15	()
+12.15	()
+12.15	->
+12.15	()
+12.15	w * h
 12.16	func max[T: Ord](a: T, b: T) -> T
 12.16	Pair[i64, Str]
 12.16	max[i64](a, b)
@@ -463,6 +469,8 @@
 12.89	Err
 12.89	print
 12.89	Ordering.Relaxed
+12.89	Expr.Num(2)
+12.89	Op.Add
 12.90	Drop
 12.90	Copy
 12.90	From
@@ -483,6 +491,7 @@
 12.91	Debug
 12.91	size_of
 12.91	align_of
+12.91	Never
 12.92	pub
 12.92	pub
 12.92	pub

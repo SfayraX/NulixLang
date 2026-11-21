@@ -327,3 +327,7 @@ xs.get(0)	expr
 + Table[life self]	type	Table[life self]
 + func test() { } end test	decl	func test() { } end test
 + test: loop { } end test	stmt	test: loop { } end test
+# фрагменты, добавленные в спецификацию 22 ноября 2026
+w * h	expr	
+Expr.Num(2)	expr	
+Op.Add	expr	
