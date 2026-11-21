@@ -55,7 +55,7 @@ pub func eval(e: Expr) -> Result[i64, EvalError] {
 } end eval
 
 test "сложение" {
-	let e: Expr = Bin(op: Op.Add, left: Num(2), right: Num(3))
+	let e: Expr = Expr.Bin(op: Op.Add, left: Expr.Num(2), right: Expr.Num(3))
 	assert eval(e) is Ok(5)
-	assert eval(Num(1)) is Ok(v) and v == 1, "единица"
+	assert eval(Expr.Num(1)) is Ok(v) and v == 1, "единица"
 }
