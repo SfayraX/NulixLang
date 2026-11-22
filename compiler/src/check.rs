@@ -3,20 +3,27 @@
 //! Правила — `spec/core-check.md`. Проверка останавливается на первой ошибке и называет её
 //! строку. Она не зависит ни от проверщика IR, ни от интерпретатора.
 //!
-//! Сейчас проверяются файл, объявления и сигнатуры — шаг 1 раздела 9 `spec/core-check.md`:
-//! заголовок `@file`, конструкции вне шага 2, имена объявлений, типы полей, вариантов,
+//! Сейчас проверяются шаги 1 и 2 раздела 9 `spec/core-check.md`. Шаг 1 — файл, объявления и
+//! сигнатуры: заголовок `@file`, конструкции вне шага 2, имена объявлений, типы полей, вариантов,
 //! параметров и результатов, `impl Copy for T {}`, типы, которые содержат сами себя, метки `end`
-//! у объявлений и имена тестов. Тела функций и тестов пока не проверяются.
+//! у объявлений и имена тестов. Шаг 2 — выражения и инструкции в телах: локальные имена без
+//! затенения, типы и литералы, операции, вызовы и режимы аргументов, места для записи, `if`,
+//! циклы и их метки, `return`, `break`, `continue`, `assert`, недостижимый код и `Never`.
+//! `match` и владение — шаги 3 и 4 — пока не проверяются.
 //!
 //! Порядок: сначала все объявления по порядку файла — их форма и имена; затем типы полей,
 //! вариантов, параметров и результатов; затем `impl Copy`; затем типы, которые содержат сами
-//! себя; затем простота частей у типов с `impl Copy`. Рекурсия идёт только по вложенности типов,
-//! а её ограничивает предел вложенности разборщика; вызывать проверку, как и разбор, нужно
-//! через `stack::run`.
+//! себя; затем простота частей у типов с `impl Copy`; затем тела функций и тестов по порядку
+//! файла. Внутри тела условия `if` проверяются раньше его ветвей, а операнд и ветвь со своим
+//! типом — раньше остальных (раздел 4, «Операции»), поэтому первой может оказаться ошибка правее
+//! или ниже по тексту. Рекурсия идёт по вложенности типов, выражений и блоков, а её ограничивает
+//! предел вложенности разборщика; вызывать проверку, как и разбор, нужно через `stack::run`.
 
 use crate::ast;
 use crate::core::{
-    Field, Func, Param, Payload, Program, Test, Type, TypeDecl, TypeId, TypeKind, Variant,
+    Arg, BinOp, Block, Body, Expr, ExprKind, Field, Func, FuncId, Local, LocalId, LocalKind,
+    LoopId, Param, Payload, Place, Program, Step, Stmt, StmtKind, Test, TuplePattern, Type,
+    TypeDecl, TypeId, TypeKind, UnOp, Variant, VariantValue,
 };
 use crate::ir::{Mode, Scalar};
 use std::collections::{HashMap, HashSet};
@@ -51,6 +58,11 @@ const STANDARD_NAMES: [&str; 24] = [
 /// функции, варианты и интерфейсы — типами не являются.
 const STANDARD_TYPES: [&str; 6] = ["Option", "Result", "List", "Str", "Bytes", "TextOut"];
 
+/// Интерфейсы среди стандартных имён (12.90): значением они не бывают.
+const STANDARD_INTERFACES: [&str; 11] = [
+    "Drop", "Copy", "From", "Error", "Display", "Debug", "Eq", "Ord", "Hash", "Iterator", "Add",
+];
+
 /// Слова строгости в заголовке `@file(…)` (12.66, 12.68).
 const STRICTNESS: [&str; 4] = ["prototype", "develop", "production", "strict"];
 
@@ -79,6 +91,7 @@ pub fn check(file: &ast::File) -> R<Program> {
     c.copy_impls()?;
     c.self_containing()?;
     c.copy_parts()?;
+    c.bodies()?;
     Ok(c.program)
 }
 
@@ -86,7 +99,14 @@ pub fn check(file: &ast::File) -> R<Program> {
 #[derive(Debug, Clone, Copy)]
 enum Item {
     Type(TypeId),
-    Func,
+    Func(FuncId),
+}
+
+/// Чьё тело: функции или теста, по номеру.
+#[derive(Debug, Clone, Copy)]
+enum BodyOf {
+    Func(FuncId),
+    Test(usize),
 }
 
 /// Запись или перечисление в дереве разбора.
@@ -104,8 +124,12 @@ struct Checker<'a> {
     names: HashMap<&'a str, (Item, u32)>,
     /// Записи и перечисления из дерева разбора, по номерам в `program.types`.
     types: Vec<TypeSource<'a>>,
-    /// Сигнатуры функций из дерева разбора, по номерам в `program.funcs`.
-    funcs: Vec<&'a ast::FuncSig>,
+    /// Функции из дерева разбора, по номерам в `program.funcs`.
+    funcs: Vec<&'a ast::FuncDecl>,
+    /// Тесты из дерева разбора, по номерам в `program.tests`.
+    test_decls: Vec<&'a ast::TestDecl>,
+    /// Тела функций и тестов в порядке файла.
+    body_order: Vec<BodyOf>,
     /// `impl Copy for T {}`: тип после `for` и строка объявления.
     impls: Vec<(&'a ast::PathType, u32)>,
     /// Строка `impl Copy` у каждого простого типа.
@@ -222,8 +246,10 @@ impl<'a> Checker<'a> {
                 );
             }
         }
-        self.declare(&sig.name, sig.line, Item::Func)?;
-        self.funcs.push(sig);
+        let id = self.funcs.len();
+        self.declare(&sig.name, sig.line, Item::Func(id))?;
+        self.funcs.push(func);
+        self.body_order.push(BodyOf::Func(id));
         Ok(())
     }
 
@@ -363,7 +389,10 @@ impl<'a> Checker<'a> {
         self.program.tests.push(Test {
             name: value,
             line: name.line,
+            body: Body::default(),
         });
+        self.body_order.push(BodyOf::Test(self.test_decls.len()));
+        self.test_decls.push(t);
         Ok(())
     }
 
@@ -446,7 +475,7 @@ impl<'a> Checker<'a> {
             self.program.types[id].kind = kind;
         }
         for k in 0..self.funcs.len() {
-            let sig = self.funcs[k];
+            let sig = &self.funcs[k].sig;
             let mut params = Vec::new();
             for param in &sig.params {
                 // `self` и параметры без типа отвергнуты в `func_decl`
@@ -472,6 +501,7 @@ impl<'a> Checker<'a> {
                 params,
                 result,
                 line: sig.line,
+                body: Body::default(),
             });
         }
         Ok(())
@@ -806,4 +836,1808 @@ pub(crate) fn decode_string(raw: &str) -> Result<String, String> {
         }
     }
     Ok(out)
+}
+
+// ───────── тела функций и тестов ─────────
+
+const BOOL: Type = Type::Scalar(Scalar::Bool);
+const I64: Type = Type::Scalar(Scalar::I64);
+
+fn is_int(ty: &Type) -> bool {
+    matches!(ty, Type::Scalar(s) if s.int_range().is_some())
+}
+
+fn is_float(ty: &Type) -> bool {
+    matches!(ty, Type::Scalar(Scalar::F32 | Scalar::F64))
+}
+
+fn is_number(ty: &Type) -> bool {
+    is_int(ty) || is_float(ty)
+}
+
+/// Последнее выражение блока, если блок кончается выражением.
+fn tail(block: &ast::Block) -> Option<&ast::Expr> {
+    match block.stmts.last() {
+        Some(ast::Stmt {
+            kind: ast::StmtKind::Expr(e),
+            ..
+        }) => Some(e),
+        _ => None,
+    }
+}
+
+/// Выражение без своего типа: его тип задаёт место или другой операнд (решения 2 и 24). Это
+/// числовой литерал; скобки, минус и `~` вокруг такого выражения; арифметика и `&`, `|`, `^`,
+/// где все операнды такие; сдвиг, где такой левый операнд; `if` с `else`, где значения всех
+/// ветвей такие; кортеж и массив, где каждый элемент такой или литерал.
+fn literal_like(e: &ast::Expr) -> bool {
+    match &e.kind {
+        ast::ExprKind::Int(_) | ast::ExprKind::Float(_) => true,
+        ast::ExprKind::Tuple(items) | ast::ExprKind::List(items) => items.iter().all(literal_part),
+        ast::ExprKind::Paren(inner) => literal_like(inner),
+        ast::ExprKind::Unary(ast::UnOp::Neg | ast::UnOp::BitNot, inner) => literal_like(inner),
+        ast::ExprKind::Binary(first, rest) => match rest.first().map(|(op, _)| *op) {
+            Some(
+                ast::BinOp::Add
+                | ast::BinOp::Sub
+                | ast::BinOp::Mul
+                | ast::BinOp::Div
+                | ast::BinOp::Rem
+                | ast::BinOp::BitAnd
+                | ast::BinOp::BitOr
+                | ast::BinOp::BitXor,
+            ) => literal_like(first) && rest.iter().all(|(_, o)| literal_like(o)),
+            Some(ast::BinOp::Shl | ast::BinOp::Shr) => literal_like(first),
+            _ => false,
+        },
+        ast::ExprKind::If(ifx) => match &ifx.otherwise {
+            None => false,
+            Some(otherwise) => {
+                let tails: Vec<&ast::Expr> = ifx
+                    .branches
+                    .iter()
+                    .map(|b| &b.then)
+                    .chain(std::iter::once(otherwise))
+                    .filter_map(tail)
+                    .collect();
+                !tails.is_empty() && tails.iter().all(|t| literal_like(t))
+            }
+        },
+        _ => false,
+    }
+}
+
+/// Часть кортежа или массива из одних литералов: любой литерал (раздел 3) или выражение из
+/// одних литералов.
+fn literal_part(e: &ast::Expr) -> bool {
+    matches!(
+        e.kind,
+        ast::ExprKind::Bool(_) | ast::ExprKind::Char(_) | ast::ExprKind::Unit
+    ) || literal_like(e)
+}
+
+fn bin_op(op: ast::BinOp) -> Option<BinOp> {
+    Some(match op {
+        ast::BinOp::Add => BinOp::Add,
+        ast::BinOp::Sub => BinOp::Sub,
+        ast::BinOp::Mul => BinOp::Mul,
+        ast::BinOp::Div => BinOp::Div,
+        ast::BinOp::Rem => BinOp::Rem,
+        ast::BinOp::BitAnd => BinOp::BitAnd,
+        ast::BinOp::BitOr => BinOp::BitOr,
+        ast::BinOp::BitXor => BinOp::BitXor,
+        ast::BinOp::Shl => BinOp::Shl,
+        ast::BinOp::Shr => BinOp::Shr,
+        ast::BinOp::Eq => BinOp::Eq,
+        ast::BinOp::Ne => BinOp::Ne,
+        ast::BinOp::Lt => BinOp::Lt,
+        ast::BinOp::Le => BinOp::Le,
+        ast::BinOp::Gt => BinOp::Gt,
+        ast::BinOp::Ge => BinOp::Ge,
+        ast::BinOp::And | ast::BinOp::Or | ast::BinOp::RangeExcl | ast::BinOp::RangeIncl => {
+            return None
+        }
+    })
+}
+
+/// Таблицы имён полей и вариантов: поиск по имени не перебирает объявление.
+struct Tables<'p> {
+    fields: Vec<HashMap<&'p str, usize>>,
+    variants: Vec<HashMap<&'p str, usize>>,
+    variant_fields: Vec<Vec<HashMap<&'p str, usize>>>,
+    /// Первое перечисление с вариантом такого имени — для подсказки «пишется с именем типа».
+    variant_owner: HashMap<&'p str, TypeId>,
+}
+
+impl<'p> Tables<'p> {
+    fn new(p: &'p Program) -> Tables<'p> {
+        let mut t = Tables {
+            fields: Vec::new(),
+            variants: Vec::new(),
+            variant_fields: Vec::new(),
+            variant_owner: HashMap::new(),
+        };
+        for (id, decl) in p.types.iter().enumerate() {
+            let mut fields = HashMap::new();
+            let mut variants = HashMap::new();
+            let mut payloads = Vec::new();
+            match &decl.kind {
+                TypeKind::Struct(fs) => {
+                    for (k, f) in fs.iter().enumerate() {
+                        fields.insert(f.name.as_str(), k);
+                    }
+                }
+                TypeKind::Enum(vs) => {
+                    for (k, v) in vs.iter().enumerate() {
+                        variants.insert(v.name.as_str(), k);
+                        t.variant_owner.entry(v.name.as_str()).or_insert(id);
+                        let mut names = HashMap::new();
+                        if let Payload::Fields(fs) = &v.payload {
+                            for (j, f) in fs.iter().enumerate() {
+                                names.insert(f.name.as_str(), j);
+                            }
+                        }
+                        payloads.push(names);
+                    }
+                }
+            }
+            t.fields.push(fields);
+            t.variants.push(variants);
+            t.variant_fields.push(payloads);
+        }
+        t
+    }
+}
+
+/// Цикл, внутри которого идёт проверка.
+struct LoopFrame<'a> {
+    id: LoopId,
+    label: Option<&'a str>,
+    line: u32,
+    has_break: bool,
+}
+
+impl<'a> Checker<'a> {
+    /// Тела функций и тестов по порядку файла (`spec/core-check.md`, разделы 2 и 4).
+    fn bodies(&mut self) -> R<()> {
+        let mut funcs = vec![Body::default(); self.funcs.len()];
+        let mut tests = vec![Body::default(); self.test_decls.len()];
+        {
+            let tables = Tables::new(&self.program);
+            for &of in &self.body_order {
+                match of {
+                    BodyOf::Func(id) => {
+                        let decl = self.funcs[id];
+                        let f = &self.program.funcs[id];
+                        let mut b = BodyChecker::new(self, &tables, f.result.clone());
+                        for (param, source) in f.params.iter().zip(&decl.sig.params) {
+                            if let ast::ParamKind::Named(name, _) = &source.kind {
+                                b.declare(
+                                    name,
+                                    param.ty.clone(),
+                                    LocalKind::Param(param.mode),
+                                    param.line,
+                                )?;
+                            }
+                        }
+                        let block = b.block(&decl.body, Some(&f.result))?;
+                        funcs[id] = Body {
+                            locals: b.locals,
+                            block,
+                        };
+                    }
+                    BodyOf::Test(k) => {
+                        let mut b = BodyChecker::new(self, &tables, Type::Unit);
+                        let block = b.block(&self.test_decls[k].body, Some(&Type::Unit))?;
+                        tests[k] = Body {
+                            locals: b.locals,
+                            block,
+                        };
+                    }
+                }
+            }
+        }
+        for (f, body) in self.program.funcs.iter_mut().zip(funcs) {
+            f.body = body;
+        }
+        for (t, body) in self.program.tests.iter_mut().zip(tests) {
+            t.body = body;
+        }
+        Ok(())
+    }
+}
+
+/// Проверка одного тела.
+struct BodyChecker<'c, 'a> {
+    c: &'c Checker<'a>,
+    p: &'c Program,
+    t: &'c Tables<'c>,
+    /// Результат функции; у теста — `()`.
+    result: Type,
+    locals: Vec<Local>,
+    /// Видимые локальные имена. Затенения нет (12.93), поэтому у видимого имени одно значение.
+    visible: HashMap<&'a str, LocalId>,
+    /// Имена, объявленные в каждом из открытых блоков: при выходе из блока они перестают быть
+    /// видны.
+    scopes: Vec<Vec<&'a str>>,
+    loops: Vec<LoopFrame<'a>>,
+    loop_count: usize,
+    /// Идёт условие `while`: циклы с номером в `loops` ниже этого — снаружи условия, из него
+    /// `break` и `continue` к ним не относятся.
+    cond_floor: Option<usize>,
+    /// Следующий блок — ветвь `if` без `else`, чьё значение ждут: подсказка к решению 4.
+    if_value: bool,
+}
+
+impl<'c, 'a> BodyChecker<'c, 'a> {
+    fn new(c: &'c Checker<'a>, t: &'c Tables<'c>, result: Type) -> BodyChecker<'c, 'a> {
+        BodyChecker {
+            c,
+            p: &c.program,
+            t,
+            result,
+            locals: Vec::new(),
+            visible: HashMap::new(),
+            scopes: vec![Vec::new()],
+            loops: Vec::new(),
+            loop_count: 0,
+            cond_floor: None,
+            if_value: false,
+        }
+    }
+
+    fn text(&self, ty: &Type) -> String {
+        self.p.type_text(ty)
+    }
+
+    fn mismatch<T>(&self, line: u32, want: &Type, found: &Type) -> R<T> {
+        fail(
+            line,
+            format!(
+                "тип не совпадает: ожидался {}, здесь {}",
+                self.text(want),
+                self.text(found)
+            ),
+        )
+    }
+
+    /// Выражение подходит к ожидаемому типу; выражение, которое уходит, подходит к любому (9.36).
+    fn expect(&self, e: Expr, want: Option<&Type>) -> R<Expr> {
+        if let Some(want) = want {
+            if e.ty != *want && !self.leaves(&e) {
+                return self.mismatch(e.line, want, &e.ty);
+            }
+        }
+        Ok(e)
+    }
+
+    /// Выражение уходит и значения не даёт: его тип — `Never`, или это вызов функции, чей
+    /// результат — перечисление без вариантов (9.36, решение 10в).
+    fn leaves(&self, e: &Expr) -> bool {
+        e.ty == Type::Never || (matches!(e.kind, ExprKind::Call(..)) && self.p.is_never(&e.ty))
+    }
+
+    // ───────── имена ─────────
+
+    /// Локальное имя: оно не совпадает с другим видимым локальным именем (12.93). Имя пакета,
+    /// встроенного типа или стандартное имя оно скрыть может (раздел 4, решение 26).
+    fn declare(&mut self, name: &'a str, ty: Type, kind: LocalKind, line: u32) -> R<LocalId> {
+        if let Some(&other) = self.visible.get(name) {
+            return fail(
+                line,
+                format!(
+                    "имя {} уже объявлено в строке {}: затенения нет (12.93)",
+                    name, self.locals[other].line
+                ),
+            );
+        }
+        let id = self.locals.len();
+        self.locals.push(Local {
+            name: name.to_string(),
+            ty,
+            kind,
+            line,
+        });
+        self.visible.insert(name, id);
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.push(name);
+        }
+        Ok(id)
+    }
+
+    /// В место можно писать: это `var`, параметр `mut` или `take` (12.12, 12.58, 12.60).
+    fn writable(&self, local: LocalId, line: u32) -> R<()> {
+        let l = &self.locals[local];
+        match l.kind {
+            LocalKind::Var | LocalKind::Param(Mode::Mut) | LocalKind::Param(Mode::Take) => Ok(()),
+            LocalKind::Let => fail(
+                line,
+                format!(
+                    "{} объявлено через let: его значение не меняется (12.12)",
+                    l.name
+                ),
+            ),
+            LocalKind::Param(Mode::Read) => fail(
+                line,
+                format!("{} — параметр для чтения: его не меняют (12.58)", l.name),
+            ),
+        }
+    }
+
+    // ───────── блоки и инструкции ─────────
+
+    /// Блок. Если ожидается `()`, последнее выражение стоит инструкцией (решение 4); иначе оно
+    /// — значение блока. После инструкции, которая всегда уходит, ничего нет (решение 7). Блок,
+    /// который всегда уходит, имеет тип `Never` (9.36).
+    fn block(&mut self, b: &'a ast::Block, want: Option<&Type>) -> R<Block> {
+        // подсказка — только для последнего выражения этого блока, не для вложенных
+        let if_value = std::mem::take(&mut self.if_value);
+        self.scopes.push(Vec::new());
+        let unit = want == Some(&Type::Unit);
+        let mut stmts = Vec::new();
+        let mut value = None;
+        let mut ty = Type::Unit;
+        let mut leaves: Option<u32> = None;
+        let n = b.stmts.len();
+        for (k, st) in b.stmts.iter().enumerate() {
+            if let Some(at) = leaves {
+                return fail(
+                    st.line,
+                    format!(
+                        "сюда выполнение не дойдёт: инструкция в строке {} всегда уходит (решение 7)",
+                        at
+                    ),
+                );
+            }
+            let last = k + 1 == n;
+            match &st.kind {
+                ast::StmtKind::Expr(e) if last && !unit => {
+                    let v = self.expr(e, want)?;
+                    if self.leaves(&v) {
+                        ty = Type::Never;
+                        stmts.push(Stmt {
+                            kind: StmtKind::Expr(v),
+                            line: st.line,
+                        });
+                    } else if v.ty == Type::Unit {
+                        stmts.push(Stmt {
+                            kind: StmtKind::Expr(v),
+                            line: st.line,
+                        });
+                    } else {
+                        ty = v.ty.clone();
+                        value = Some(Box::new(v));
+                    }
+                }
+                _ => {
+                    let (s, always_leaves) = self.stmt(st, last && if_value)?;
+                    if always_leaves {
+                        leaves = Some(st.line);
+                        ty = Type::Never;
+                    }
+                    stmts.push(s);
+                }
+            }
+        }
+        if let Some(names) = self.scopes.pop() {
+            for name in names {
+                self.visible.remove(name);
+            }
+        }
+        if let Some(want) = want {
+            if ty != *want && ty != Type::Never {
+                let message = match b.stmts.last() {
+                    None => format!(
+                        "блок пуст, а должен дать значение типа {}",
+                        self.text(want)
+                    ),
+                    Some(_) => format!(
+                        "блок должен дать значение типа {}, а его последняя инструкция значения не даёт",
+                        self.text(want)
+                    ),
+                };
+                let line = b.stmts.last().map_or(b.line, |st| st.line);
+                return fail(line, message);
+            }
+        }
+        Ok(Block {
+            stmts,
+            value,
+            ty,
+            line: b.line,
+        })
+    }
+
+    /// Инструкция и признак того, что она всегда уходит. `if_value` — инструкция последняя в
+    /// ветви `if` без `else`, чьё значение ждут.
+    fn stmt(&mut self, st: &'a ast::Stmt, if_value: bool) -> R<(Stmt, bool)> {
+        let line = st.line;
+        let (kind, leaves) = match &st.kind {
+            ast::StmtKind::Binding(b) => (self.binding(b)?, false),
+            ast::StmtKind::Expr(e) => {
+                // ветви if в инструкции — тоже инструкции (решение 4); скобки этого не меняют
+                let mut bare = e;
+                while let ast::ExprKind::Paren(inner) = &bare.kind {
+                    bare = inner;
+                }
+                let v = if matches!(bare.kind, ast::ExprKind::If(_)) {
+                    self.expr(bare, Some(&Type::Unit))?
+                } else {
+                    self.expr(bare, None)?
+                };
+                let leaves = self.leaves(&v);
+                if !leaves && v.ty != Type::Unit && !matches!(v.kind, ExprKind::Call(..)) {
+                    let message = if if_value {
+                        format!(
+                            "if без else даёт (), и значение типа {} здесь пропадёт (решение 4): допишите else",
+                            self.text(&v.ty)
+                        )
+                    } else {
+                        format!(
+                            "значение типа {} не используется: выбросить можно только результат вызова функции (решение 4)",
+                            self.text(&v.ty)
+                        )
+                    };
+                    return fail(e.line, message);
+                }
+                (StmtKind::Expr(v), leaves)
+            }
+            ast::StmtKind::Assign(op, place, value) => {
+                (self.assign(*op, place, value, line)?, false)
+            }
+            ast::StmtKind::For(_) => return outside(line, "for"),
+            ast::StmtKind::While(w) => (self.while_loop(w, line)?, false),
+            ast::StmtKind::Loop(l) => self.endless_loop(l, line)?,
+            ast::StmtKind::Return(value) => (self.return_stmt(value.as_ref(), line)?, true),
+            ast::StmtKind::Break(label) => (
+                StmtKind::Break(self.loop_target(label.as_deref(), line, true)?),
+                true,
+            ),
+            ast::StmtKind::Continue(label) => (
+                StmtKind::Continue(self.loop_target(label.as_deref(), line, false)?),
+                true,
+            ),
+            ast::StmtKind::Assert(cond, message) => {
+                (self.assert_stmt(cond, message.as_ref())?, false)
+            }
+            ast::StmtKind::DiscardSelf => return outside(line, "методы и self"),
+        };
+        Ok((Stmt { kind, line }, leaves))
+    }
+
+    /// `let` и `var`: тип — написанный или правой части (решение 1).
+    fn binding(&mut self, b: &'a ast::Binding) -> R<StmtKind> {
+        let kind = match b.kind {
+            ast::BindKind::Let => LocalKind::Let,
+            ast::BindKind::Var => LocalKind::Var,
+            ast::BindKind::Const => return outside(b.line, "const"),
+        };
+        let written = match &b.ty {
+            Some(ty) => Some(self.c.ty(ty)?),
+            None => None,
+        };
+        let value = self.inner(&b.value, written.as_ref())?;
+        match &b.target {
+            ast::BindTarget::Name(name) => {
+                let ty = written.unwrap_or_else(|| value.ty.clone());
+                let id = self.declare(name, ty, kind, b.line)?;
+                Ok(StmtKind::Let(id, value))
+            }
+            ast::BindTarget::Tuple(pattern) => {
+                let ty = written.unwrap_or_else(|| value.ty.clone());
+                let pattern = self.tuple_pattern(pattern, &ty, kind)?;
+                Ok(StmtKind::LetTuple(pattern, value))
+            }
+        }
+    }
+
+    /// Образец в `let`: имена, `_` и вложенные кортежи — он подходит всегда (решение 18).
+    fn tuple_pattern(
+        &mut self,
+        p: &'a ast::Pattern,
+        ty: &Type,
+        kind: LocalKind,
+    ) -> R<TuplePattern> {
+        match &p.kind {
+            ast::PatternKind::Wildcard => Ok(TuplePattern::Skip),
+            ast::PatternKind::Path(names) if names.len() == 1 => {
+                let name = names[0].as_str();
+                if let Type::Named(id) = ty {
+                    if self.t.variants[*id].contains_key(name) {
+                        return fail(
+                            p.line,
+                            format!(
+                                "в let образец подходит всегда, а {} — вариант {} (решение 18)",
+                                name, self.p.types[*id].name
+                            ),
+                        );
+                    }
+                }
+                Ok(TuplePattern::Bind(self.declare(
+                    name,
+                    ty.clone(),
+                    kind,
+                    p.line,
+                )?))
+            }
+            ast::PatternKind::Tuple(items) => match ty {
+                Type::Tuple(parts) if parts.len() == items.len() => {
+                    let mut out = Vec::new();
+                    for (item, part) in items.iter().zip(parts) {
+                        out.push(self.tuple_pattern(item, part, kind)?);
+                    }
+                    Ok(TuplePattern::Tuple(out))
+                }
+                _ => fail(
+                    p.line,
+                    format!(
+                        "образец из {} частей, а значение типа {}",
+                        items.len(),
+                        self.text(ty)
+                    ),
+                ),
+            },
+            _ => fail(
+                p.line,
+                "в let образец подходит всегда: только имена, _ и кортежи (решение 18)".to_string(),
+            ),
+        }
+    }
+
+    fn assign(
+        &mut self,
+        op: Option<ast::BinOp>,
+        target: &'a ast::Expr,
+        value: &'a ast::Expr,
+        line: u32,
+    ) -> R<StmtKind> {
+        let (place, ty) = self.place(
+            target,
+            "присваивают месту: переменной, параметру, их полю или элементу",
+        )?;
+        match op {
+            None => {
+                let value = self.inner(value, Some(&ty))?;
+                Ok(StmtKind::Assign(place, None, value))
+            }
+            Some(op) => {
+                let Some(op) = bin_op(op) else {
+                    return fail(line, "такого составного присваивания нет".to_string());
+                };
+                self.op_fits(op, &ty, line)?;
+                let value = if matches!(op, BinOp::Shl | BinOp::Shr) {
+                    let amount = self.inner(value, None)?;
+                    self.shift_amount(&amount)?;
+                    amount
+                } else {
+                    self.inner(value, Some(&ty))?
+                };
+                Ok(StmtKind::Assign(place, Some(op), value))
+            }
+        }
+    }
+
+    /// Место для записи или для `mut`: локальное имя, его поля и элементы; в него можно писать.
+    /// `not_place` — сообщение, если выражение — не место.
+    fn place(&mut self, e: &'a ast::Expr, not_place: &str) -> R<(Place, Type)> {
+        let base_line = e.line;
+        // имя, которое ничего не называет, — ошибка имени, а не места
+        let base = match &e.kind {
+            ast::ExprKind::Postfix(base, _) => base,
+            _ => e,
+        };
+        if let ast::ExprKind::Name(name) = &base.kind {
+            if !self.names_something(name) {
+                return fail(base_line, format!("нет имени {}", name));
+            }
+        }
+        let is_place = match &e.kind {
+            ast::ExprKind::Name(name) => self.visible.contains_key(name.as_str()),
+            ast::ExprKind::Postfix(base, ops) => {
+                matches!(&base.kind, ast::ExprKind::Name(name) if self.visible.contains_key(name.as_str()))
+                    && ops.iter().all(|op| !matches!(op, ast::PostfixOp::Call(_)))
+            }
+            _ => false,
+        };
+        if !is_place {
+            return fail(base_line, not_place.to_string());
+        }
+        let v = self.expr(e, None)?;
+        match v.kind {
+            ExprKind::Place(place) => {
+                self.writable(place.base, base_line)?;
+                Ok((place, v.ty))
+            }
+            _ => fail(base_line, not_place.to_string()),
+        }
+    }
+
+    /// `while`: условие — не тело цикла, поэтому `break` и `continue` в условии бывают только у
+    /// циклов внутри него (решение 23).
+    fn while_loop(&mut self, w: &'a ast::WhileStmt, line: u32) -> R<StmtKind> {
+        let id = self.enter_loop(w.label.as_deref(), line)?;
+        let outer = self.cond_floor.replace(self.loops.len());
+        let cond = self.inner(&w.cond, Some(&BOOL))?;
+        self.cond_floor = outer;
+        let body = self.block(&w.body, Some(&Type::Unit))?;
+        self.loops.pop();
+        self.loop_end(w.end.as_ref(), "while", w.label.as_deref(), line)?;
+        Ok(StmtKind::While(id, cond, body))
+    }
+
+    /// `loop`: без `break` своего цикла он всегда уходит (9.36).
+    fn endless_loop(&mut self, l: &'a ast::LoopStmt, line: u32) -> R<(StmtKind, bool)> {
+        let id = self.enter_loop(l.label.as_deref(), line)?;
+        let body = self.block(&l.body, Some(&Type::Unit))?;
+        let has_break = self.loops.pop().is_some_and(|f| f.has_break);
+        self.loop_end(l.end.as_ref(), "loop", l.label.as_deref(), line)?;
+        Ok((StmtKind::Loop(id, body), !has_break))
+    }
+
+    /// Вложенные циклы с одной меткой — ошибка, как в IR (решение 10ж).
+    fn enter_loop(&mut self, label: Option<&'a str>, line: u32) -> R<LoopId> {
+        if let Some(label) = label {
+            if let Some(outer) = self.loops.iter().find(|f| f.label == Some(label)) {
+                return fail(
+                    line,
+                    format!(
+                        "метка {} уже у внешнего цикла в строке {} (решение 10ж)",
+                        label, outer.line
+                    ),
+                );
+            }
+        }
+        let id = self.loop_count;
+        self.loop_count += 1;
+        self.loops.push(LoopFrame {
+            id,
+            label,
+            line,
+            has_break: false,
+        });
+        Ok(id)
+    }
+
+    /// Метка `end` у цикла: у помеченного цикла — его метка, у остального — слово цикла (12.8,
+    /// решения 12 и 22).
+    fn loop_end(
+        &self,
+        end: Option<&ast::EndLoop>,
+        word: &str,
+        label: Option<&str>,
+        line: u32,
+    ) -> R<()> {
+        let text = match end {
+            None => return Ok(()),
+            Some(ast::EndLoop::Keyword(k)) => k.as_str(),
+            Some(ast::EndLoop::Label(l)) => l.as_str(),
+        };
+        match label {
+            Some(label) if text != label => fail(
+                line,
+                format!("метка end {} не совпадает с меткой цикла {}", text, label),
+            ),
+            None if text != word => fail(
+                line,
+                format!("метка end {} не совпадает с началом цикла {}", text, word),
+            ),
+            _ => Ok(()),
+        }
+    }
+
+    fn loop_target(&mut self, label: Option<&str>, line: u32, is_break: bool) -> R<LoopId> {
+        let word = if is_break { "break" } else { "continue" };
+        let k = match label {
+            None => match self.loops.len().checked_sub(1) {
+                Some(k) => k,
+                None => return fail(line, format!("{} стоит вне цикла", word)),
+            },
+            Some(label) => match self.loops.iter().rposition(|f| f.label == Some(label)) {
+                Some(k) => k,
+                None => return fail(line, format!("{}: нет цикла с меткой {}", word, label)),
+            },
+        };
+        if self.cond_floor.is_some_and(|floor| k < floor) {
+            return fail(
+                line,
+                format!(
+                    "{} стоит в условии while, а условие — не тело цикла (решение 23): перенесите проверку в тело",
+                    word
+                ),
+            );
+        }
+        if is_break {
+            self.loops[k].has_break = true;
+        }
+        Ok(self.loops[k].id)
+    }
+
+    fn return_stmt(&mut self, value: Option<&'a ast::Expr>, line: u32) -> R<StmtKind> {
+        match value {
+            Some(value) => {
+                let result = self.result.clone();
+                Ok(StmtKind::Return(Some(self.inner(value, Some(&result))?)))
+            }
+            None if self.result == Type::Unit => Ok(StmtKind::Return(None)),
+            None => fail(
+                line,
+                format!(
+                    "return без значения, а результат функции — {}",
+                    self.text(&self.result)
+                ),
+            ),
+        }
+    }
+
+    fn assert_stmt(&mut self, cond: &'a ast::Expr, message: Option<&'a ast::Expr>) -> R<StmtKind> {
+        let cond = self.inner(cond, Some(&BOOL))?;
+        let message = match message {
+            None => None,
+            Some(e) => match &e.kind {
+                ast::ExprKind::Str(lit) if !lit.subs.is_empty() => {
+                    return fail(
+                        lit.line,
+                        "сообщение assert — строка без подстановок (решение 10к)".to_string(),
+                    );
+                }
+                ast::ExprKind::Str(lit) if lit.raw.starts_with("\"\"\"") => {
+                    return outside(lit.line, "многострочная строка в сообщении assert");
+                }
+                ast::ExprKind::Str(lit) => match decode_string(&lit.raw) {
+                    Ok(text) => Some(text),
+                    Err(message) => return fail(lit.line, message),
+                },
+                _ => {
+                    return fail(
+                        e.line,
+                        "сообщение assert — строка: assert условие, \"пояснение\" (12.48)"
+                            .to_string(),
+                    )
+                }
+            },
+        };
+        Ok(StmtKind::Assert(cond, message))
+    }
+
+    // ───────── выражения ─────────
+
+    /// Выражение не в конце блока и не инструкцией: его значение используется, поэтому типа без
+    /// значений здесь быть не может (решение 14).
+    fn inner(&mut self, e: &'a ast::Expr, want: Option<&Type>) -> R<Expr> {
+        let v = self.expr(e, want)?;
+        self.valued(v)
+    }
+
+    /// Значение используется дальше, поэтому его тип — не тип без значений (решение 14).
+    fn valued(&self, v: Expr) -> R<Expr> {
+        if self.leaves(&v) {
+            return fail(
+                v.line,
+                format!(
+                    "выражение типа {} значения не даёт, и дальше выполнение не пойдёт (решения 7 и 14): его ставят отдельной инструкцией или последним в блоке",
+                    self.text(&v.ty)
+                ),
+            );
+        }
+        Ok(v)
+    }
+
+    fn expr(&mut self, e: &'a ast::Expr, want: Option<&Type>) -> R<Expr> {
+        let line = e.line;
+        let v = match &e.kind {
+            ast::ExprKind::Int(text) => self.int_literal(text, false, line, want)?,
+            ast::ExprKind::Float(text) => self.float_literal(text, false, line, want)?,
+            // минус прямо перед числом — часть литерала (решения 10а и 25)
+            ast::ExprKind::Unary(ast::UnOp::Neg, inner) => match &inner.kind {
+                ast::ExprKind::Int(text) => self.int_literal(text, true, line, want)?,
+                ast::ExprKind::Float(text) => self.float_literal(text, true, line, want)?,
+                _ => self.unary(ast::UnOp::Neg, inner, line, want)?,
+            },
+            ast::ExprKind::Bool(b) => Expr {
+                kind: ExprKind::Bool(*b),
+                ty: BOOL,
+                line,
+            },
+            ast::ExprKind::Char(raw) => {
+                let text = match decode_string(raw) {
+                    Ok(text) => text,
+                    Err(message) => return fail(line, message),
+                };
+                let mut chars = text.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) => Expr {
+                        kind: ExprKind::Char(c),
+                        ty: Type::Scalar(Scalar::Char),
+                        line,
+                    },
+                    _ => return fail(line, "в символе ровно один знак".to_string()),
+                }
+            }
+            ast::ExprKind::Unit => Expr {
+                kind: ExprKind::Unit,
+                ty: Type::Unit,
+                line,
+            },
+            ast::ExprKind::Str(_) => return outside(line, "строки"),
+            ast::ExprKind::SelfValue => return outside(line, "методы и self"),
+            ast::ExprKind::Name(_) | ast::ExprKind::Postfix(..) => self.postfix(e)?,
+            ast::ExprKind::Paren(inner) => return self.expr(inner, want),
+            ast::ExprKind::Tuple(items) => {
+                let parts = match want {
+                    Some(Type::Tuple(parts)) if parts.len() == items.len() => Some(parts.clone()),
+                    _ => None,
+                };
+                let mut out = Vec::new();
+                for (k, item) in items.iter().enumerate() {
+                    let part = parts.as_ref().map(|p| &p[k]);
+                    out.push(self.inner(item, part)?);
+                }
+                let ty = Type::Tuple(out.iter().map(|v| v.ty.clone()).collect());
+                Expr {
+                    kind: ExprKind::Tuple(out),
+                    ty,
+                    line,
+                }
+            }
+            ast::ExprKind::List(items) => self.array(items, line, want)?,
+            ast::ExprKind::Binary(first, rest) => self.binary(first, rest, line, want)?,
+            ast::ExprKind::Unary(op, inner) => self.unary(*op, inner, line, want)?,
+            ast::ExprKind::Is(..) => return outside(line, "is"),
+            ast::ExprKind::Catch(_) => return outside(line, "catch"),
+            ast::ExprKind::If(ifx) => self.if_expr(ifx, line, want)?,
+            ast::ExprKind::Match(_) => {
+                return fail(
+                    line,
+                    "match ещё не проверяется: это шаг 3 раздела 9 spec/core-check.md".to_string(),
+                )
+            }
+            ast::ExprKind::Closure(_) => return outside(line, "замыкания"),
+            ast::ExprKind::Trust(_) => return outside(line, "trust"),
+            ast::ExprKind::Provide(_) => return outside(line, "provide"),
+            ast::ExprKind::Target(_) => return outside(line, "target"),
+            ast::ExprKind::LevelBlock(_) => {
+                return outside(line, "блоки с пометкой уровня или строгости")
+            }
+        };
+        self.expect(v, want)
+    }
+
+    /// Целый литерал: тип места, иначе `i64`; значение помещается в тип (12.56, решение 2).
+    fn int_literal(&self, text: &str, negative: bool, line: u32, want: Option<&Type>) -> R<Expr> {
+        let shown = if negative {
+            format!("-{}", text)
+        } else {
+            text.to_string()
+        };
+        let scalar = match want {
+            Some(Type::Scalar(s)) if s.int_range().is_some() => *s,
+            Some(ty) if is_float(ty) => {
+                // в совете — десятичная запись: дробные пишутся только так (13.16)
+                let decimal = match parse_int(text) {
+                    Some(m) if negative => format!("-{}", m),
+                    Some(m) => m.to_string(),
+                    None => shown.clone(),
+                };
+                return fail(
+                    line,
+                    format!(
+                        "целое число {} на месте дробного {}: пишут {}.0 (решение 2)",
+                        shown,
+                        self.text(ty),
+                        decimal
+                    ),
+                );
+            }
+            Some(ty) => {
+                return fail(
+                    line,
+                    format!(
+                        "тип не совпадает: ожидался {}, здесь целое число",
+                        self.text(ty)
+                    ),
+                )
+            }
+            None => Scalar::I64,
+        };
+        if negative && !scalar.is_signed() {
+            return fail(
+                line,
+                format!("у беззнакового {} нет смены знака (9.18)", scalar.name()),
+            );
+        }
+        let (lo, hi) = scalar.int_range().unwrap_or((0, 0));
+        // число больше i128 не помещается ни в один тип: его заменяет i128::MAX
+        let value = match parse_int(text).map(i128::try_from) {
+            Some(Ok(m)) if negative => -m,
+            Some(Ok(m)) => m,
+            _ => i128::MAX,
+        };
+        if value < lo || value > hi {
+            return fail(
+                line,
+                format!("число {} не помещается в {} (12.56)", shown, scalar.name()),
+            );
+        }
+        Ok(Expr {
+            kind: ExprKind::Int(value),
+            ty: Type::Scalar(scalar),
+            line,
+        })
+    }
+
+    /// Дробный литерал: `f32` или `f64` по месту, без места — `f64`; остаётся конечным (12.56).
+    /// Десятичная запись округляется прямо до своего типа.
+    fn float_literal(&self, text: &str, negative: bool, line: u32, want: Option<&Type>) -> R<Expr> {
+        let shown = if negative {
+            format!("-{}", text)
+        } else {
+            text.to_string()
+        };
+        let scalar = match want {
+            Some(Type::Scalar(s @ (Scalar::F32 | Scalar::F64))) => *s,
+            Some(ty) if is_int(ty) => {
+                return fail(
+                    line,
+                    format!(
+                        "дробное число {} на месте целого {} (решение 2)",
+                        shown,
+                        self.text(ty)
+                    ),
+                )
+            }
+            Some(ty) => {
+                return fail(
+                    line,
+                    format!(
+                        "тип не совпадает: ожидался {}, здесь дробное число",
+                        self.text(ty)
+                    ),
+                )
+            }
+            None => Scalar::F64,
+        };
+        let digits: String = text.chars().filter(|c| *c != '_').collect();
+        let value = if scalar == Scalar::F32 {
+            digits.parse::<f32>().ok().map(f64::from)
+        } else {
+            digits.parse::<f64>().ok()
+        };
+        match value {
+            Some(v) if v.is_finite() => Ok(Expr {
+                kind: ExprKind::Float(if negative { -v } else { v }),
+                ty: Type::Scalar(scalar),
+                line,
+            }),
+            _ => fail(
+                line,
+                format!("число {} не помещается в {} (12.56)", shown, scalar.name()),
+            ),
+        }
+    }
+
+    fn array(&mut self, items: &'a [ast::Expr], line: u32, want: Option<&Type>) -> R<Expr> {
+        match want {
+            Some(Type::Array(item, n)) => {
+                if items.len() as u64 != *n {
+                    return fail(
+                        line,
+                        format!(
+                            "в массиве {} должно быть элементов: {}, а здесь {}",
+                            self.text(&Type::Array(item.clone(), *n)),
+                            n,
+                            items.len()
+                        ),
+                    );
+                }
+                let mut out = Vec::new();
+                for e in items {
+                    out.push(self.inner(e, Some(item))?);
+                }
+                Ok(Expr {
+                    kind: ExprKind::Array(out),
+                    ty: Type::Array(item.clone(), *n),
+                    line,
+                })
+            }
+            Some(ty) => fail(
+                line,
+                format!(
+                    "тип не совпадает: ожидался {}, здесь массив",
+                    self.text(ty)
+                ),
+            ),
+            None => fail(
+                line,
+                "у массива не указан тип: без типа [ … ] — список, а его в шаге 2 нет (12.37); укажите Array[T, N]"
+                    .to_string(),
+            ),
+        }
+    }
+
+    fn unary(
+        &mut self,
+        op: ast::UnOp,
+        inner: &'a ast::Expr,
+        line: u32,
+        want: Option<&Type>,
+    ) -> R<Expr> {
+        let (op, value) = match op {
+            ast::UnOp::Try => return outside(line, "try"),
+            ast::UnOp::Await => return outside(line, "await"),
+            ast::UnOp::Not => (UnOp::Not, self.inner(inner, Some(&BOOL))?),
+            ast::UnOp::Neg => {
+                let want = want.filter(|t| is_number(t));
+                let v = self.inner(inner, want)?;
+                let signed = matches!(&v.ty, Type::Scalar(s) if s.is_signed()) || is_float(&v.ty);
+                if !signed {
+                    return fail(
+                        line,
+                        format!(
+                            "смена знака есть только у знаковых целых и дробных (9.18), а здесь {}",
+                            self.text(&v.ty)
+                        ),
+                    );
+                }
+                (UnOp::Neg, v)
+            }
+            ast::UnOp::BitNot => {
+                let want = want.filter(|t| is_int(t));
+                let v = self.inner(inner, want)?;
+                if !is_int(&v.ty) {
+                    return fail(
+                        line,
+                        format!(
+                            "~ — только у целых (решение 10г), а здесь {}",
+                            self.text(&v.ty)
+                        ),
+                    );
+                }
+                (UnOp::BitNot, v)
+            }
+        };
+        let ty = value.ty.clone();
+        Ok(Expr {
+            kind: ExprKind::Unary(op, Box::new(value)),
+            ty,
+            line,
+        })
+    }
+
+    /// Цепочка двухместных операций одного семейства (13.5). Семейства не смешивает разбор:
+    /// `and` и `or` — каждое своей цепочкой, сравнение и сдвиг — по одному, арифметика — `+` и
+    /// `-` или `*`, `/` и `%`, а `&`, `|` и `^` — каждый своей цепочкой. Поэтому у всех
+    /// операций цепочки одно правило для операндов, и оно проверяется один раз.
+    fn binary(
+        &mut self,
+        first: &'a ast::Expr,
+        rest: &'a [(ast::BinOp, ast::Expr)],
+        line: u32,
+        want: Option<&Type>,
+    ) -> R<Expr> {
+        let Some(&(op0, _)) = rest.first() else {
+            return self.expr(first, want);
+        };
+        match op0 {
+            ast::BinOp::And | ast::BinOp::Or => {
+                let mut parts = vec![self.inner(first, Some(&BOOL))?];
+                for (_, e) in rest {
+                    parts.push(self.inner(e, Some(&BOOL))?);
+                }
+                let kind = if op0 == ast::BinOp::And {
+                    ExprKind::And(parts)
+                } else {
+                    ExprKind::Or(parts)
+                };
+                return Ok(Expr {
+                    kind,
+                    ty: BOOL,
+                    line,
+                });
+            }
+            ast::BinOp::RangeExcl | ast::BinOp::RangeIncl => {
+                return outside(line, "диапазоны ..< и ..=")
+            }
+            _ => {}
+        }
+        let mut ops = Vec::new();
+        for (op, _) in rest {
+            match bin_op(*op) {
+                Some(op) => ops.push(op),
+                None => {
+                    return fail(
+                        line,
+                        "в цепочке операции разных семейств (13.5)".to_string(),
+                    )
+                }
+            }
+        }
+        let operands: Vec<&'a ast::Expr> = std::iter::once(first)
+            .chain(rest.iter().map(|(_, e)| e))
+            .collect();
+        let (typed, ty) = match ops[..] {
+            [op @ (BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge)] => {
+                // сравнение: тип операндов — от операнда со своим типом, место не влияет
+                (self.same_type(&operands, None, op, line)?.0, BOOL)
+            }
+            [BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge, ..] => {
+                return fail(
+                    line,
+                    "сравнения не выстраиваются в цепочку (13.5)".to_string(),
+                )
+            }
+            [op @ (BinOp::Shl | BinOp::Shr), ..] => {
+                // литерал слева берёт тип от места, иначе это i64; величина сдвига — целое
+                // любого типа, литерал в ней — i64 (9.13)
+                let want = want.filter(|t| op_ok(op, t));
+                let left = if want.is_none() && literal_like(first) {
+                    self.inner(first, Some(&I64))?
+                } else {
+                    self.inner(first, want)?
+                };
+                self.op_fits(op, &left.ty, line)?;
+                let ty = left.ty.clone();
+                let mut typed = vec![left];
+                for (_, e) in rest {
+                    let amount = self.inner(e, None)?;
+                    self.shift_amount(&amount)?;
+                    typed.push(amount);
+                }
+                (typed, ty)
+            }
+            [op, ..] => {
+                // арифметика, `&`, `|`, `^`: операнды одного типа — от места, иначе от операнда
+                // со своим типом (решение 2). Место, на котором операции нет, тип не даёт: тогда
+                // ошибка — несовпадение типа результата с местом
+                self.same_type(&operands, want.filter(|t| op_ok(op, t)), op, line)?
+            }
+            [] => return self.expr(first, want),
+        };
+        let mut typed = typed.into_iter();
+        let Some(head) = typed.next() else {
+            return fail(line, "нет операндов".to_string());
+        };
+        Ok(Expr {
+            kind: ExprKind::Binary(Box::new(head), ops.into_iter().zip(typed).collect()),
+            ty,
+            line,
+        })
+    }
+
+    /// Операнды одного типа: от места, если оно задано; иначе от первого операнда со своим
+    /// типом; если такого нет — тип литерала без места (решение 2). Операнд со своим типом
+    /// проверяется первым, остальные — по его типу. Отдаёт операнды по порядку и их тип.
+    fn same_type(
+        &mut self,
+        operands: &[&'a ast::Expr],
+        want: Option<&Type>,
+        op: BinOp,
+        line: u32,
+    ) -> R<(Vec<Expr>, Type)> {
+        let mut typed: Vec<Option<Expr>> = vec![None; operands.len()];
+        let ty = match want {
+            Some(ty) => ty.clone(),
+            None => {
+                // если операнда со своим типом нет, первым идёт первый операнд: его литералы
+                // получают тип без места — `i64` или `f64` (12.56). Если в операции есть и
+                // целые, и дробные, ошибка будет в любом случае, а от первого литерала зависит
+                // только то, о каком литерале она скажет
+                let k = operands.iter().position(|o| !literal_like(o)).unwrap_or(0);
+                let v = self.inner(operands[k], None)?;
+                let ty = v.ty.clone();
+                typed[k] = Some(v);
+                ty
+            }
+        };
+        self.op_fits(op, &ty, line)?;
+        let mut out = Vec::new();
+        for (k, slot) in typed.into_iter().enumerate() {
+            out.push(match slot {
+                Some(v) => v,
+                None => self.inner(operands[k], Some(&ty))?,
+            });
+        }
+        Ok((out, ty))
+    }
+
+    /// Тип операндов подходит операции (раздел 4, «Операции»).
+    fn op_fits(&self, op: BinOp, ty: &Type, line: u32) -> R<()> {
+        if op_ok(op, ty) {
+            return Ok(());
+        }
+        let need = match op {
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => "у целых и дробных",
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+                "только у целых (решение 10г)"
+            }
+            BinOp::Eq | BinOp::Ne => "у скаляров (решение 10д)",
+            BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                "у целых, дробных и символов (решение 10д)"
+            }
+        };
+        fail(
+            line,
+            format!("{} — {}, а здесь {}", op_text(op), need, self.text(ty)),
+        )
+    }
+
+    fn shift_amount(&self, amount: &Expr) -> R<()> {
+        if is_int(&amount.ty) {
+            Ok(())
+        } else {
+            fail(
+                amount.line,
+                format!(
+                    "величина сдвига — целое (9.13), а здесь {}",
+                    self.text(&amount.ty)
+                ),
+            )
+        }
+    }
+
+    /// `if`: ветви одного типа — от места, иначе от ветви со своим типом (раздел 4). Ветвь со
+    /// своим типом проверяется первой. Без `else` тип `if` — `()`.
+    fn if_expr(&mut self, ifx: &'a ast::IfExpr, line: u32, want: Option<&Type>) -> R<Expr> {
+        let mut conds = Vec::new();
+        for branch in &ifx.branches {
+            conds.push(self.inner(&branch.cond, Some(&BOOL))?);
+        }
+        let Some(otherwise) = &ifx.otherwise else {
+            if let Some(want) = want {
+                if *want != Type::Unit {
+                    return fail(
+                        line,
+                        format!("if без else даёт (), а ожидался {}", self.text(want)),
+                    );
+                }
+            }
+            let mut branches = Vec::new();
+            for (branch, cond) in ifx.branches.iter().zip(conds) {
+                // значение такого if ждут, но у ветвей его нет: подсказка к решению 4
+                self.if_value = want.is_none();
+                branches.push((cond, self.block(&branch.then, Some(&Type::Unit))?));
+            }
+            return Ok(Expr {
+                kind: ExprKind::If(branches, None),
+                ty: Type::Unit,
+                line,
+            });
+        };
+        let blocks: Vec<&'a ast::Block> = ifx
+            .branches
+            .iter()
+            .map(|b| &b.then)
+            .chain(std::iter::once(otherwise))
+            .collect();
+        let mut order: Vec<usize> = Vec::new();
+        order.extend(
+            (0..blocks.len()).filter(|&k| tail(blocks[k]).is_some_and(|t| !literal_like(t))),
+        );
+        order.extend((0..blocks.len()).filter(|&k| tail(blocks[k]).is_some_and(literal_like)));
+        order.extend((0..blocks.len()).filter(|&k| tail(blocks[k]).is_none()));
+        let mut ty: Option<Type> = want.cloned();
+        let mut checked: Vec<Option<Block>> = vec![None; blocks.len()];
+        for k in order {
+            let b = self.block(blocks[k], ty.as_ref())?;
+            if ty.is_none() && b.ty != Type::Never {
+                ty = Some(b.ty.clone());
+            }
+            checked[k] = Some(b);
+        }
+        let mut checked = checked.into_iter().map(|b| b.unwrap_or_default());
+        let mut branches = Vec::new();
+        for cond in conds {
+            branches.push((cond, checked.next().unwrap_or_default()));
+        }
+        let otherwise = checked.next().unwrap_or_default();
+        let all_leave =
+            branches.iter().all(|(_, b)| b.ty == Type::Never) && otherwise.ty == Type::Never;
+        let ty = if all_leave {
+            Type::Never
+        } else {
+            ty.unwrap_or(Type::Unit)
+        };
+        Ok(Expr {
+            kind: ExprKind::If(branches, Some(otherwise)),
+            ty,
+            line,
+        })
+    }
+
+    // ───────── имена в выражениях, вызовы, поля и элементы ─────────
+
+    /// Имя и то, что к нему приписано: поля, элементы, вызов.
+    fn postfix(&mut self, e: &'a ast::Expr) -> R<Expr> {
+        let (base, ops): (&'a ast::Expr, &'a [ast::PostfixOp]) = match &e.kind {
+            ast::ExprKind::Postfix(base, ops) => (base, ops),
+            _ => (e, &[]),
+        };
+        let mut used = 0;
+        let mut cur = match &base.kind {
+            ast::ExprKind::Name(name) => {
+                let (v, k) = self.name_value(name, base.line, ops)?;
+                used = k;
+                v
+            }
+            _ => self.inner(base, None)?,
+        };
+        for (k, op) in ops.iter().enumerate().skip(used) {
+            // поле, элемент или вызов берут у значения (решение 14)
+            cur = self.valued(cur)?;
+            cur = match op {
+                ast::PostfixOp::Field(name) => {
+                    if matches!(ops.get(k + 1), Some(ast::PostfixOp::Call(_))) {
+                        return outside(cur.line, "методы");
+                    }
+                    self.field(cur, name)?
+                }
+                ast::PostfixOp::Index(args) => self.index(cur, args)?,
+                ast::PostfixOp::Call(_) => {
+                    return fail(
+                        cur.line,
+                        format!(
+                            "здесь вызывают значение типа {}, а вызвать можно только функцию",
+                            self.text(&cur.ty)
+                        ),
+                    )
+                }
+            };
+        }
+        Ok(cur)
+    }
+
+    /// Имя что-то называет: локальное имя, объявление пакета, встроенный тип, стандартное имя
+    /// или вариант какого-нибудь перечисления.
+    fn names_something(&self, name: &str) -> bool {
+        self.visible.contains_key(name)
+            || self.c.names.contains_key(name)
+            || builtin_type(name)
+            || STANDARD_NAMES.contains(&name)
+            || self.t.variant_owner.contains_key(name)
+    }
+
+    /// Значение имени и сколько приписанного к нему оно забрало: вызов функции, создание записи
+    /// или варианта, преобразование числа.
+    fn name_value(
+        &mut self,
+        name: &'a str,
+        line: u32,
+        ops: &'a [ast::PostfixOp],
+    ) -> R<(Expr, usize)> {
+        if let Some(&local) = self.visible.get(name) {
+            let ty = self.locals[local].ty.clone();
+            return Ok((
+                Expr {
+                    kind: ExprKind::Place(Place {
+                        base: local,
+                        path: Vec::new(),
+                    }),
+                    ty,
+                    line,
+                },
+                0,
+            ));
+        }
+        match self.c.names.get(name) {
+            Some((Item::Func(id), _)) => {
+                return match ops.first() {
+                    Some(ast::PostfixOp::Call(args)) => Ok((self.call(*id, args, line)?, 1)),
+                    Some(ast::PostfixOp::Index(_)) => outside(line, "обобщения"),
+                    _ => outside(line, "функции как значения"),
+                };
+            }
+            Some((Item::Type(id), _)) => return self.type_value(*id, line, ops),
+            None => {}
+        }
+        if let Some(scalar) = Scalar::from_name(name) {
+            return match ops.first() {
+                Some(ast::PostfixOp::Call(args)) => Ok((self.convert(scalar, args, line)?, 1)),
+                _ => fail(line, format!("{} — тип, а не значение", name)),
+            };
+        }
+        if builtin_type(name) {
+            return fail(line, format!("{} — тип, а не значение", name));
+        }
+        match name {
+            "Some" | "None" => return outside(line, "Option"),
+            "Ok" | "Err" => return outside(line, "Result"),
+            _ => {}
+        }
+        // вариант своего перечисления раньше стандартного имени: `Add` скорее значит `Op.Add`,
+        // чем интерфейс сложения
+        if let Some(&owner) = self.t.variant_owner.get(name) {
+            return fail(
+                line,
+                format!(
+                    "вариант пишется с именем типа: {}.{} (12.89)",
+                    self.p.types[owner].name, name
+                ),
+            );
+        }
+        if STANDARD_INTERFACES.contains(&name) {
+            return fail(line, format!("{} — интерфейс, а не значение", name));
+        }
+        if STANDARD_NAMES.contains(&name) {
+            return outside(line, name);
+        }
+        fail(line, format!("нет имени {}", name))
+    }
+
+    /// Имя записи или перечисления в выражении: создание записи `P(…)` или варианта `E.V(…)`.
+    fn type_value(&mut self, id: TypeId, line: u32, ops: &'a [ast::PostfixOp]) -> R<(Expr, usize)> {
+        if let Some(ast::PostfixOp::Index(_)) = ops.first() {
+            return outside(line, "обобщения");
+        }
+        let decl = &self.p.types[id];
+        match &decl.kind {
+            TypeKind::Struct(fields) => match ops.first() {
+                Some(ast::PostfixOp::Call(args)) => Ok((self.record(id, fields, args, line)?, 1)),
+                _ => fail(
+                    line,
+                    format!(
+                        "{} — тип, а не значение: запись создаётся вызовом {}(…)",
+                        decl.name, decl.name
+                    ),
+                ),
+            },
+            TypeKind::Enum(variants) => {
+                let Some(ast::PostfixOp::Field(vname)) = ops.first() else {
+                    return fail(
+                        line,
+                        format!(
+                            "{} — тип, а не значение: вариант пишется {}.Вариант",
+                            decl.name, decl.name
+                        ),
+                    );
+                };
+                let Some(&k) = self.t.variants[id].get(vname.as_str()) else {
+                    return fail(
+                        line,
+                        format!("у перечисления {} нет варианта {}", decl.name, vname),
+                    );
+                };
+                let args = match ops.get(1) {
+                    Some(ast::PostfixOp::Call(args)) => Some(args),
+                    _ => None,
+                };
+                let (value, used) = match (&variants[k].payload, args) {
+                    (Payload::None, None) => (VariantValue::None, 1),
+                    (Payload::None, Some(_)) => {
+                        return fail(
+                            line,
+                            format!("у варианта {}.{} нет значения", decl.name, vname),
+                        )
+                    }
+                    (Payload::One(_), None) | (Payload::Fields(_), None) => {
+                        return fail(
+                            line,
+                            format!(
+                                "у варианта {}.{} есть значение: {}.{}(…)",
+                                decl.name, vname, decl.name, vname
+                            ),
+                        )
+                    }
+                    (Payload::One(ty), Some(args)) => {
+                        let ty = ty.clone();
+                        match args.as_slice() {
+                            [ast::Arg::Plain(e)] => {
+                                (VariantValue::One(Box::new(self.inner(e, Some(&ty))?)), 2)
+                            }
+                            _ => {
+                                return fail(
+                                    line,
+                                    format!(
+                                    "вариант {}.{} несёт одно значение без имени: {}.{}(значение)",
+                                    decl.name, vname, decl.name, vname
+                                ),
+                                )
+                            }
+                        }
+                    }
+                    (Payload::Fields(fields), Some(args)) => {
+                        let what = format!("вариант {}.{}", decl.name, vname);
+                        let names = &self.t.variant_fields[id][k];
+                        (
+                            VariantValue::Fields(
+                                self.named_fields(fields, names, args, &what, line)?,
+                            ),
+                            2,
+                        )
+                    }
+                };
+                Ok((
+                    Expr {
+                        kind: ExprKind::Variant(id, k, value),
+                        ty: Type::Named(id),
+                        line,
+                    },
+                    used,
+                ))
+            }
+        }
+    }
+
+    fn record(&mut self, id: TypeId, fields: &[Field], args: &'a [ast::Arg], line: u32) -> R<Expr> {
+        let what = format!("запись {}", self.p.types[id].name);
+        let values = self.named_fields(fields, &self.t.fields[id], args, &what, line)?;
+        Ok(Expr {
+            kind: ExprKind::Record(id, values),
+            ty: Type::Named(id),
+            line,
+        })
+    }
+
+    /// Поля по именам: все, каждое один раз, в любом порядке (решения 10е и 19).
+    fn named_fields(
+        &mut self,
+        fields: &[Field],
+        names: &HashMap<&str, usize>,
+        args: &'a [ast::Arg],
+        what: &str,
+        line: u32,
+    ) -> R<Vec<(usize, Expr)>> {
+        let mut seen = vec![false; fields.len()];
+        let mut out = Vec::new();
+        for arg in args {
+            let (name, value) = match arg {
+                ast::Arg::Named(name, value) => (name, value),
+                ast::Arg::Plain(_) | ast::Arg::Mut(_) => {
+                    return fail(
+                        line,
+                        format!("{} создаётся с именами полей: поле: значение (12.35)", what),
+                    )
+                }
+            };
+            let Some(&k) = names.get(name.as_str()) else {
+                return fail(line, format!("у {} нет поля {}", genitive(what), name));
+            };
+            if seen[k] {
+                return fail(line, format!("поле {} задано дважды", name));
+            }
+            seen[k] = true;
+            let ty = fields[k].ty.clone();
+            out.push((k, self.inner(value, Some(&ty))?));
+        }
+        if let Some(k) = seen.iter().position(|s| !s) {
+            return fail(
+                line,
+                format!("у {} не задано поле {}", genitive(what), fields[k].name),
+            );
+        }
+        Ok(out)
+    }
+
+    /// Преобразование числа `T(x)`: между целыми, дробными и символами, кроме символа и
+    /// дробного друг в друга; `bool` не преобразуется (12.57, 9.16–9.18).
+    fn convert(&mut self, to: Scalar, args: &'a [ast::Arg], line: u32) -> R<Expr> {
+        let [ast::Arg::Plain(arg)] = args else {
+            return fail(
+                line,
+                format!("преобразование {}(…) — один аргумент без имени", to.name()),
+            );
+        };
+        let value = self.inner(arg, None)?;
+        let from = match &value.ty {
+            Type::Scalar(s) => *s,
+            other => {
+                return fail(
+                    line,
+                    format!(
+                        "в {} преобразуются только числа и символы, а здесь {}",
+                        to.name(),
+                        self.text(other)
+                    ),
+                )
+            }
+        };
+        let kind = |s: Scalar| match s {
+            Scalar::Bool => 0,
+            Scalar::Char => 1,
+            Scalar::F32 | Scalar::F64 => 2,
+            _ => 3,
+        };
+        // bool ни во что не преобразуется, символ и дробное — друг в друга
+        let ok = !matches!((kind(from), kind(to)), (0, _) | (_, 0) | (1, 2) | (2, 1));
+        if !ok {
+            return fail(
+                line,
+                format!(
+                    "{} не преобразуется в {} (9.17, 9.18)",
+                    from.name(),
+                    to.name()
+                ),
+            );
+        }
+        Ok(Expr {
+            kind: ExprKind::Convert(to, Box::new(value)),
+            ty: Type::Scalar(to),
+            line,
+        })
+    }
+
+    /// Прямой вызов функции пакета: аргументов столько, сколько параметров; у параметра `mut`
+    /// аргумент — место с `mut` (12.59), у остальных — без `mut`; именованных нет (12.36).
+    fn call(&mut self, id: FuncId, args: &'a [ast::Arg], line: u32) -> R<Expr> {
+        let f = &self.p.funcs[id];
+        if args.len() != f.params.len() {
+            return fail(
+                line,
+                format!(
+                    "функция {} ждёт аргументов: {}, а здесь {}",
+                    f.name,
+                    f.params.len(),
+                    args.len()
+                ),
+            );
+        }
+        let mut out = Vec::new();
+        for (arg, param) in args.iter().zip(&f.params) {
+            let value = match (arg, param.mode) {
+                (ast::Arg::Named(..), _) => {
+                    return fail(
+                        line,
+                        "именованных аргументов у функций нет (12.36)".to_string(),
+                    )
+                }
+                (ast::Arg::Mut(e), Mode::Mut) => {
+                    let (place, ty) = self.place(
+                        e,
+                        "с mut отдают место: переменную, параметр, их поле или элемент",
+                    )?;
+                    if ty != param.ty {
+                        return self.mismatch(e.line, &param.ty, &ty);
+                    }
+                    Expr {
+                        kind: ExprKind::Place(place),
+                        ty,
+                        line: e.line,
+                    }
+                }
+                (ast::Arg::Mut(e), _) => {
+                    return fail(
+                        e.line,
+                        format!(
+                            "параметр {} функции {} — не mut: mut при вызове не пишется",
+                            param.name, f.name
+                        ),
+                    )
+                }
+                (ast::Arg::Plain(e), Mode::Mut) => {
+                    return fail(
+                        e.line,
+                        format!(
+                            "параметр {} функции {} — mut: аргумент пишется с mut (12.59)",
+                            param.name, f.name
+                        ),
+                    )
+                }
+                (ast::Arg::Plain(e), _) => self.inner(e, Some(&param.ty))?,
+            };
+            out.push(Arg {
+                mode: param.mode,
+                value,
+            });
+        }
+        Ok(Expr {
+            kind: ExprKind::Call(id, out),
+            ty: f.result.clone(),
+            line,
+        })
+    }
+
+    fn field(&mut self, cur: Expr, name: &str) -> R<Expr> {
+        let line = cur.line;
+        let Type::Named(id) = cur.ty else {
+            return fail(line, format!("у типа {} нет полей", self.text(&cur.ty)));
+        };
+        let decl = &self.p.types[id];
+        let TypeKind::Struct(fields) = &decl.kind else {
+            return fail(
+                line,
+                format!(
+                    "значение варианта берут образцом: у перечисления {} нет полей",
+                    decl.name
+                ),
+            );
+        };
+        let Some(&k) = self.t.fields[id].get(name) else {
+            return fail(line, format!("у записи {} нет поля {}", decl.name, name));
+        };
+        let ty = fields[k].ty.clone();
+        Ok(step(cur, Step::Field(k), ty))
+    }
+
+    fn index(&mut self, cur: Expr, args: &'a [ast::IndexArg]) -> R<Expr> {
+        let line = cur.line;
+        for arg in args {
+            match arg {
+                ast::IndexArg::Expr(_) => {}
+                ast::IndexArg::Any(_) => return outside(line, "any"),
+                ast::IndexArg::Uses(_) => return outside(line, "uses"),
+            }
+        }
+        let Type::Array(item, _) = &cur.ty else {
+            return fail(
+                line,
+                format!(
+                    "номер берут только у массива, а здесь {}",
+                    self.text(&cur.ty)
+                ),
+            );
+        };
+        let item = (**item).clone();
+        let [ast::IndexArg::Expr(i)] = args else {
+            return fail(line, "у элемента массива один номер: a[i]".to_string());
+        };
+        let i = self.inner(i, Some(&I64))?;
+        Ok(step(cur, Step::Elem(Box::new(i)), item))
+    }
+}
+
+/// Шаг пути к части значения: у места продолжается его путь, у другого значения — путь его
+/// части `Part`. Так путь не вкладывается сам в себя.
+fn step(cur: Expr, step: Step, ty: Type) -> Expr {
+    let line = cur.line;
+    let kind = match cur.kind {
+        ExprKind::Place(mut place) => {
+            place.path.push(step);
+            ExprKind::Place(place)
+        }
+        ExprKind::Part(base, mut path) => {
+            path.push(step);
+            ExprKind::Part(base, path)
+        }
+        kind => ExprKind::Part(
+            Box::new(Expr {
+                kind,
+                ty: cur.ty,
+                line,
+            }),
+            vec![step],
+        ),
+    };
+    Expr { kind, ty, line }
+}
+
+/// Операция определена для операндов этого типа (раздел 4, «Операции»).
+fn op_ok(op: BinOp, ty: &Type) -> bool {
+    match op {
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => is_number(ty),
+        BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => is_int(ty),
+        BinOp::Eq | BinOp::Ne => matches!(ty, Type::Scalar(_)),
+        BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+            is_number(ty) || *ty == Type::Scalar(Scalar::Char)
+        }
+    }
+}
+
+fn op_text(op: BinOp) -> &'static str {
+    match op {
+        BinOp::Add => "+",
+        BinOp::Sub => "-",
+        BinOp::Mul => "*",
+        BinOp::Div => "/",
+        BinOp::Rem => "%",
+        BinOp::BitAnd => "&",
+        BinOp::BitOr => "|",
+        BinOp::BitXor => "^",
+        BinOp::Shl => "<<",
+        BinOp::Shr => ">>",
+        BinOp::Eq => "==",
+        BinOp::Ne => "!=",
+        BinOp::Lt => "<",
+        BinOp::Le => "<=",
+        BinOp::Gt => ">",
+        BinOp::Ge => ">=",
+    }
+}
+
+/// «запись P» → «записи P», «вариант E.V» → «варианта E.V».
+fn genitive(what: &str) -> String {
+    if let Some(rest) = what.strip_prefix("запись ") {
+        format!("записи {}", rest)
+    } else if let Some(rest) = what.strip_prefix("вариант ") {
+        format!("варианта {}", rest)
+    } else {
+        what.to_string()
+    }
 }

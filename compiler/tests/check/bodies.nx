@@ -1,0 +1,223 @@
+// Правильная программа шага 2: выражения и инструкции (spec/core-check.md, разделы 4 и 5).
+// Её же в части 5 проведут через перевод в IR, проверщик и интерпретатор, поэтому утверждения
+// в тестах верны.
+@file(develop)
+
+struct Point {
+	x: i64
+	y: i64
+}
+
+impl Copy for Point {}
+
+struct Token {
+	id: u32
+	weight: f32
+}
+
+enum Shape {
+	Circle(r: f64)
+	Rect(w: f64, h: f64)
+	Dot
+}
+
+enum Wrap {
+	One(Token)
+	Pair(left: Token, right: Token)
+}
+
+enum Void {}
+
+struct Marker {}
+
+func add(a: i64, b: i64) -> i64 {
+	a + b
+}
+
+// литерал берёт тип другого операнда, сдвиг — тип левого
+func mix(a: u8, b: u8) -> u16 {
+	let s = a + b * 2
+	let wide = u16(s) + 300
+	wide << 1
+}
+
+func between(x: i64, lo: i64, hi: i64) -> bool {
+	lo <= x and x < hi
+}
+
+// ветвь со своим типом задаёт тип литерала в другой ветви
+func pick(flag: bool, small: u8) -> u8 {
+	let v = if flag { 1 } else { small }
+	v
+}
+
+@system
+func limits() -> (i8, u64, f32, char) {
+	let lo: i8 = -128
+	let hi = u64(9_223_372_036_854_775_807)
+	let f: f32 = 1.5e3
+	let c = char(65)
+	(lo, hi, f, c)
+}
+
+func shift(mut p: Point, dx: i64) {
+	p.x += dx
+	p.y = p.y - 1
+}
+
+func make_token(id: u32) -> Token {
+	Token(weight: 0.5, id: id)
+}
+
+func reweigh(take t: Token, w: f32) -> Token {
+	t.weight = w
+	t
+}
+
+func shapes() -> Shape {
+	let round = Shape.Circle(r: 1.0)
+	let dot = Shape.Dot
+	Shape.Rect(h: 2.0, w: 3.0)
+}
+
+func sum(values: Array[i64, 4]) -> i64 {
+	var total = 0
+	var i = 0
+	while i < 4 {
+		total += values[i]
+		i += 1
+	}
+	total
+}
+
+func fill() -> Array[u8, 3] {
+	var a: Array[u8, 3] = [0, 0, 0]
+	a[1] = 7
+	a
+}
+
+func find(grid: Array[Array[i64, 3], 3], goal: i64) -> (i64, i64) {
+	var row = 0
+	var found = (-1, -1)
+	outer: while row < 3 {
+		var col = 0
+		while col < 3 {
+			if grid[row][col] == goal {
+				found = (row, col)
+				break outer
+			}
+			col += 1
+		} end while
+		row += 1
+	} end outer
+	found
+}
+
+func count_to(last: i64) -> i64 {
+	var n = 0
+	loop {
+		n += 1
+		if n == last {
+			break
+		}
+		if n % 2 == 0 {
+			continue
+		}
+	} end loop
+	n
+}
+
+func forever() -> Never {
+	loop {
+	}
+}
+
+func nothing() -> Void {
+	loop {
+	}
+}
+
+func checked(x: i64) -> i64 {
+	if x < 0 {
+		forever()
+	} else {
+		x
+	}
+}
+
+// ветвь без значений тип не задаёт: литерал в другой ветви берёт i64
+func sign(x: i64) -> i64 {
+	let s = if x < 0 { forever() } else { 1 }
+	s * x
+}
+
+@high
+func use_nothing(x: i64) -> i64 {
+	if x > 0 { x } else { nothing() }
+}
+
+func clamp(x: i64) -> i64 {
+	if x > 100 {
+		return 100
+	}
+	x
+}
+
+func swap_pair(p: (i64, bool)) -> (bool, i64) {
+	let (n, flag) = p
+	(flag, n)
+}
+
+func touch(mut counter: i64) -> i64 {
+	counter += 1
+	counter
+}
+
+// запись без полей создаётся как Marker() (решение 10е)
+func marker() -> Marker {
+	Marker()
+}
+
+// результат вызова в инструкции выбрасывается (решение 4)
+func calls(flag: bool) {
+	var c = 0
+	if flag {
+		touch(mut c)
+	} else {
+		touch(mut c)
+	}
+	touch(mut c)
+}
+
+test "арифметика" {
+	assert add(2, 3) == 5
+	assert mix(1, 2) == 610, "u8 и u16"
+	let p = Point(x: 1, y: 2)
+	assert p.x + p.y == 3
+	assert between(5, 1, 10)
+	assert not between(10, 1, 10)
+	assert pick(true, 9) == 1 and pick(false, 9) == 9
+}
+
+test "значения" {
+	let (lo, hi, f, c) = limits()
+	assert lo == -128 and c == 'A'
+	assert f == 1500.0
+	assert hi == 9_223_372_036_854_775_807
+	assert make_token(7).id == 7
+	assert reweigh(make_token(1), 2.0).weight == 2.0
+	assert fill()[1] == 7
+	assert sum([1, 2, 3, 4]) == 10
+	let w = Wrap.One(make_token(2))
+	let m = marker()
+}
+
+test "циклы" {
+	assert count_to(5) == 5
+	let grid: Array[Array[i64, 3], 3] = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+	let (r, c) = find(grid, 6)
+	assert r == 1 and c == 2
+	assert checked(5) == 5 and clamp(150) == 100 and use_nothing(3) == 3
+	let (f2, n2) = swap_pair((3, true))
+	assert f2 and n2 == 3
+} end test

@@ -1,14 +1,23 @@
 //! Проверенное дерево явного ядра — то, что проверка исходника (`check.rs`) отдаёт переводу в IR.
 //!
-//! Правила — `spec/core-check.md`. Всё, что лежит здесь, уже проверено: имена объявлений
-//! разрешены, типы полей и параметров известны, простые типы отмечены. Пока в дереве объявления
-//! и сигнатуры функций; тела функций и тестов появятся в нём вместе со своей проверкой
-//! (`spec/core-check.md`, раздел 9).
+//! Правила — `spec/core-check.md`. Всё, что лежит здесь, уже проверено: имена разрешены, у
+//! каждого выражения записан тип, простые типы отмечены. В телах пока нет `match`, а копии и
+//! перемещения не размечены: они появятся вместе со своей проверкой (`spec/core-check.md`,
+//! раздел 9, шаги 3 и 4).
 
 use crate::ir::{Mode, Scalar};
 
 /// Номер записи или перечисления в `Program::types`.
 pub type TypeId = usize;
+
+/// Номер функции в `Program::funcs`.
+pub type FuncId = usize;
+
+/// Номер локального имени в `Body::locals`.
+pub type LocalId = usize;
+
+/// Номер цикла в теле. Циклы нумеруются в порядке проверки, см. `Body::locals`.
+pub type LoopId = usize;
 
 /// Тип явного ядра шага 2.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +88,8 @@ pub struct Func {
     pub params: Vec<Param>,
     pub result: Type,
     pub line: u32,
+    /// Тело; его первые локальные имена — параметры, в том же порядке.
+    pub body: Body,
 }
 
 /// Параметр: без слова — чтение, `mut` — изменение на месте, `take` — передача владения (12.58).
@@ -95,6 +106,196 @@ pub struct Param {
 pub struct Test {
     pub name: String,
     pub line: u32,
+    pub body: Body,
+}
+
+/// Тело функции или теста: все его локальные имена и блок.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Body {
+    /// Параметры — первыми и по порядку, затем переменные и имена из образцов в порядке
+    /// проверки. Он может отличаться от порядка в тексте: ветвь `if` и операнд со своим типом
+    /// проверяются первыми (`spec/core-check.md`, раздел 4, «Операции»). Имена в разных блоках
+    /// могут повторяться: затенения нет только среди видимых (12.93).
+    pub locals: Vec<Local>,
+    pub block: Block,
+}
+
+/// Локальное имя: параметр или переменная.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Local {
+    pub name: String,
+    pub ty: Type,
+    pub kind: LocalKind,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalKind {
+    /// `let`: значение не меняется (12.12).
+    Let,
+    Var,
+    Param(Mode),
+}
+
+/// Блок: инструкции и значение. Значение — последнее выражение блока; его нет у блока типа
+/// `()`: там последнее выражение стоит инструкцией (решение 4). Блок, который всегда уходит,
+/// имеет тип `Never` и значения не даёт (9.36).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Block {
+    pub stmts: Vec<Stmt>,
+    pub value: Option<Box<Expr>>,
+    pub ty: Type,
+    pub line: u32,
+}
+
+impl Default for Block {
+    fn default() -> Block {
+        Block {
+            stmts: Vec::new(),
+            value: None,
+            ty: Type::Unit,
+            line: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Stmt {
+    pub kind: StmtKind,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StmtKind {
+    /// `let` или `var` с одним именем.
+    Let(LocalId, Expr),
+    /// Разбор кортежа: `let (a, b) = …` (13.10).
+    LetTuple(TuplePattern, Expr),
+    /// `место = значение`; у составного присваивания — его операция: `+=` хранит `Add` (12.54).
+    Assign(Place, Option<BinOp>, Expr),
+    /// Выражение, стоящее инструкцией. Его значение — `()` или результат вызова функции, и оно
+    /// выбрасывается (решение 4), либо выражение уходит и значения не даёт (9.36).
+    Expr(Expr),
+    While(LoopId, Expr, Block),
+    Loop(LoopId, Block),
+    Return(Option<Expr>),
+    Break(LoopId),
+    Continue(LoopId),
+    /// `assert условие` и значение строки-сообщения.
+    Assert(Expr, Option<String>),
+}
+
+/// Образец в `let (…) = …`: имя, `_` или вложенный кортеж (решение 18).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TuplePattern {
+    Bind(LocalId),
+    Skip,
+    Tuple(Vec<TuplePattern>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Expr {
+    pub kind: ExprKind,
+    pub ty: Type,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExprKind {
+    /// Целое число; его тип — в `Expr::ty`.
+    Int(i128),
+    /// Дробное число, уже округлённое до своего типа: у `f32` — прямо до ближайшего `f32`.
+    Float(f64),
+    Bool(bool),
+    Char(char),
+    Unit,
+    /// Значение места: переменной, параметра, их поля или элемента.
+    Place(Place),
+    /// Часть значения, которое не место, — например, результата вызова: путь из полей и
+    /// элементов, как у места.
+    Part(Box<Expr>, Vec<Step>),
+    Unary(UnOp, Box<Expr>),
+    /// Цепочка двухместных операций одного семейства — первый операнд и пары «операция,
+    /// операнд», как в тексте. Операции идут слева направо: `a - b + c` — это `(a - b) + c`
+    /// (13.5). В арифметике и у `&`, `|`, `^` все операнды и результат — одного типа. У сравнения
+    /// и сдвига операция одна: сравнение даёт `bool`, сдвиг — тип левого операнда.
+    ///
+    /// Цепочка не вкладывается сама в себя, поэтому глубина дерева остаётся в пределе
+    /// вложенности разборщика при любой длине цепочки.
+    Binary(Box<Expr>, Vec<(BinOp, Expr)>),
+    /// `a and b and …`: следующая часть вычисляется, только если все прежние истинны (9.29).
+    And(Vec<Expr>),
+    /// `a or b or …`: следующая часть вычисляется, только если все прежние ложны (9.29).
+    Or(Vec<Expr>),
+    Call(FuncId, Vec<Arg>),
+    /// Преобразование числа `T(x)` (12.57).
+    Convert(Scalar, Box<Expr>),
+    /// Запись: номер поля и значение, в порядке записи — так они и вычисляются (9.27).
+    Record(TypeId, Vec<(usize, Expr)>),
+    /// Вариант: тип, номер варианта и значение.
+    Variant(TypeId, usize, VariantValue),
+    Tuple(Vec<Expr>),
+    Array(Vec<Expr>),
+    /// `if … else if … else …`: ветви с условиями по порядку и блок `else`.
+    If(Vec<(Expr, Block)>, Option<Block>),
+}
+
+/// Значение, которое несёт создаваемый вариант.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VariantValue {
+    None,
+    One(Box<Expr>),
+    /// Номер поля и значение, в порядке записи.
+    Fields(Vec<(usize, Expr)>),
+}
+
+/// Аргумент вызова. У аргумента параметра `mut` значение — место.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Arg {
+    pub mode: Mode,
+    pub value: Expr,
+}
+
+/// Место: локальное имя и путь в нём.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Place {
+    pub base: LocalId,
+    pub path: Vec<Step>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Step {
+    /// Поле записи по номеру.
+    Field(usize),
+    /// Элемент массива; номер — выражение типа `i64` (12.19).
+    Elem(Box<Expr>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnOp {
+    Neg,
+    BitNot,
+    Not,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
 }
 
 impl Program {
