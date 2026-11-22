@@ -1802,12 +1802,12 @@ const BODY_REJECTED: &[(&str, u32, &str)] = &[
     (
         "func f(c: bool) {\n\twhile if c { break } else { true } {\n\t}\n}\n",
         2,
-        "break стоит в условии while, а условие — не тело цикла: перенесите проверку в тело",
+        "break стоит в условии while, а условие — не тело цикла (решение 23): перенесите проверку в тело",
     ),
     (
         "func f(c: bool) {\n\touter: loop {\n\t\twhile if c { continue outer } else { true } {\n\t\t}\n\t}\n}\n",
         3,
-        "continue стоит в условии while, а условие — не тело цикла: перенесите проверку в тело",
+        "continue стоит в условии while, а условие — не тело цикла (решение 23): перенесите проверку в тело",
     ),
     // имя, которого нет, в месте записи
     ("func f() {\n\ty = 1\n}\n", 2, "нет имени y"),
@@ -1914,6 +1914,17 @@ const BODY_REJECTED: &[(&str, u32, &str)] = &[
         2,
         "== — у скаляров (решение 10д), а здесь ()",
     ),
+    (
+        "func f() {\n\tlet x = (1, 2) == (1, 2)\n}\n",
+        2,
+        "== — у скаляров (решение 10д), а здесь (i64, i64)",
+    ),
+    // скобки отделяют число от минуса (решение 25)
+    (
+        "func f() {\n\tlet x: i8 = -(128)\n}\n",
+        2,
+        "число 128 не помещается в i8 (12.56)",
+    ),
     // место на сравнение не влияет: результат — bool
     (
         "func f(x: i64) {\n\tlet n: u8 = 1 < x\n}\n",
@@ -1997,6 +2008,23 @@ fn local_names_may_hide_package_names_and_repeat_in_sibling_blocks() {
 fn local_names_may_hide_builtin_type_names() {
     // 12.93 и раздел 4: в выражении имя ведёт к локальному, в месте типа — к типу
     let p = accepted("func f() -> i64 {\n\tlet i64: i64 = 4\n\tlet Never = i64 + 1\n\tNever\n}\n");
+    // стандартные имена локальное имя тоже скрывает (решение 26)
+    let q = accepted("func g(Option: i64) -> i64 {\n\tlet print = 1\n\tvar Copy = 2\n\tCopy += print\n\tlet Some = Copy + Option\n\tSome\n}\n");
+    assert_eq!(
+        local_types(&q, "g"),
+        pairs(&[
+            ("Option", "i64"),
+            ("print", "i64"),
+            ("Copy", "i64"),
+            ("Some", "i64")
+        ])
+    );
+    // пробел между минусом и числом литерал не разрывает (решение 25)
+    let r = accepted("func h() -> i8 {\n\t- 128\n}\n");
+    assert_eq!(
+        func(&r, "h").body.block.value.as_deref().map(|e| &e.kind),
+        Some(&ExprKind::Int(-128))
+    );
     assert_eq!(
         local_types(&p, "f"),
         pairs(&[("i64", "i64"), ("Never", "i64")])

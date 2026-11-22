@@ -866,10 +866,10 @@ fn tail(block: &ast::Block) -> Option<&ast::Expr> {
     }
 }
 
-/// Выражение без своего типа: литерал или выражение из одних литералов. Его тип берётся от
-/// места или от другого операнда (решение 2, раздел 4 «Операции»). Кроме того, своего типа нет у
-/// сдвига, если литерал слева, и у `if`, у которого значения всех ветвей — такие выражения: их
-/// тип тоже задаёт место.
+/// Выражение без своего типа: его тип задаёт место или другой операнд (решения 2 и 24). Это
+/// числовой литерал; скобки, минус и `~` вокруг такого выражения; арифметика и `&`, `|`, `^`,
+/// где все операнды такие; сдвиг, где такой левый операнд; `if` с `else`, где значения всех
+/// ветвей такие; кортеж и массив, где каждый элемент такой или литерал.
 fn literal_like(e: &ast::Expr) -> bool {
     match &e.kind {
         ast::ExprKind::Int(_) | ast::ExprKind::Float(_) => true,
@@ -914,25 +914,6 @@ fn literal_part(e: &ast::Expr) -> bool {
         e.kind,
         ast::ExprKind::Bool(_) | ast::ExprKind::Char(_) | ast::ExprKind::Unit
     ) || literal_like(e)
-}
-
-/// Тип операции из одних литералов без места: `i64` или `f64` (12.56). Если в ней есть и целые,
-/// и дробные, ошибка будет в любом случае, а тип берётся от первого литерала — от него зависит
-/// только то, о каком литерале скажет ошибка.
-fn literal_default(e: &ast::Expr) -> Type {
-    match &e.kind {
-        ast::ExprKind::Float(_) => Type::Scalar(Scalar::F64),
-        ast::ExprKind::Paren(inner) | ast::ExprKind::Unary(_, inner) => literal_default(inner),
-        ast::ExprKind::Binary(first, _) => literal_default(first),
-        ast::ExprKind::If(ifx) => match ifx.branches.iter().find_map(|b| tail(&b.then)) {
-            Some(t) => literal_default(t),
-            None => match ifx.otherwise.as_ref().and_then(tail) {
-                Some(t) => literal_default(t),
-                None => I64,
-            },
-        },
-        _ => I64,
-    }
 }
 
 fn bin_op(op: ast::BinOp) -> Option<BinOp> {
@@ -1138,7 +1119,8 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
 
     // ───────── имена ─────────
 
-    /// Локальное имя: оно не совпадает с другим видимым локальным именем (12.93).
+    /// Локальное имя: оно не совпадает с другим видимым локальным именем (12.93). Имя пакета,
+    /// встроенного типа или стандартное имя оно скрыть может (раздел 4, решение 26).
     fn declare(&mut self, name: &'a str, ty: Type, kind: LocalKind, line: u32) -> R<LocalId> {
         if let Some(&other) = self.visible.get(name) {
             return fail(
@@ -1471,7 +1453,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
     }
 
     /// `while`: условие — не тело цикла, поэтому `break` и `continue` в условии бывают только у
-    /// циклов внутри него.
+    /// циклов внутри него (решение 23).
     fn while_loop(&mut self, w: &'a ast::WhileStmt, line: u32) -> R<StmtKind> {
         let id = self.enter_loop(w.label.as_deref(), line)?;
         let outer = self.cond_floor.replace(self.loops.len());
@@ -1517,7 +1499,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
     }
 
     /// Метка `end` у цикла: у помеченного цикла — его метка, у остального — слово цикла (12.8,
-    /// решение 12).
+    /// решения 12 и 22).
     fn loop_end(
         &self,
         end: Option<&ast::EndLoop>,
@@ -1559,7 +1541,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
             return fail(
                 line,
                 format!(
-                    "{} стоит в условии while, а условие — не тело цикла: перенесите проверку в тело",
+                    "{} стоит в условии while, а условие — не тело цикла (решение 23): перенесите проверку в тело",
                     word
                 ),
             );
@@ -1645,7 +1627,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
         let v = match &e.kind {
             ast::ExprKind::Int(text) => self.int_literal(text, false, line, want)?,
             ast::ExprKind::Float(text) => self.float_literal(text, false, line, want)?,
-            // минус прямо перед числом — часть литерала (решение 10а)
+            // минус прямо перед числом — часть литерала (решения 10а и 25)
             ast::ExprKind::Unary(ast::UnOp::Neg, inner) => match &inner.kind {
                 ast::ExprKind::Int(text) => self.int_literal(text, true, line, want)?,
                 ast::ExprKind::Float(text) => self.float_literal(text, true, line, want)?,
@@ -2034,15 +2016,17 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
         let mut typed: Vec<Option<Expr>> = vec![None; operands.len()];
         let ty = match want {
             Some(ty) => ty.clone(),
-            None => match operands.iter().position(|o| !literal_like(o)) {
-                Some(k) => {
-                    let v = self.inner(operands[k], None)?;
-                    let ty = v.ty.clone();
-                    typed[k] = Some(v);
-                    ty
-                }
-                None => literal_default(operands[0]),
-            },
+            None => {
+                // если операнда со своим типом нет, первым идёт первый операнд: его литералы
+                // получают тип без места — `i64` или `f64` (12.56). Если в операции есть и
+                // целые, и дробные, ошибка будет в любом случае, а от первого литерала зависит
+                // только то, о каком литерале она скажет
+                let k = operands.iter().position(|o| !literal_like(o)).unwrap_or(0);
+                let v = self.inner(operands[k], None)?;
+                let ty = v.ty.clone();
+                typed[k] = Some(v);
+                ty
+            }
         };
         self.op_fits(op, &ty, line)?;
         let mut out = Vec::new();
