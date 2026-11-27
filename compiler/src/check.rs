@@ -1215,7 +1215,8 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
     // ───────── имена ─────────
 
     /// Локальное имя: оно не совпадает с другим видимым локальным именем (12.93). Имя пакета,
-    /// встроенного типа или стандартное имя оно скрыть может (раздел 4, решение 26).
+    /// встроенного типа или стандартное имя оно скрыть может (раздел 4, решение 26). Переменная
+    /// и параметр не называются как вариант своего типа (12.42): в образце такое имя — вариант.
     fn declare(&mut self, name: &'a str, ty: Type, kind: LocalKind, line: u32) -> R<LocalId> {
         if let Some(&other) = self.visible.get(name) {
             return fail(
@@ -1225,6 +1226,22 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
                     name, self.locals[other].line
                 ),
             );
+        }
+        if let Type::Named(id) = &ty {
+            if self.t.variants[*id].contains_key(name) {
+                let what = match kind {
+                    LocalKind::Param(_) => "параметр",
+                    _ => "переменная",
+                };
+                let e = &self.p.types[*id].name;
+                return fail(
+                    line,
+                    format!(
+                        "{} {} типа {} называется как вариант {}.{} (12.42)",
+                        what, name, e, e, name
+                    ),
+                );
+            }
         }
         let id = self.locals.len();
         self.locals.push(Local {
