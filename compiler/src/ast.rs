@@ -601,7 +601,8 @@ pub struct MatchExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum MatchItem {
     Case(MatchCase),
-    Else(Block, bool),
+    /// `else`: блок, есть ли `end else`, и строка слова `else`.
+    Else(Block, bool, u32),
 }
 
 #[derive(Debug, Clone, PartialEq)]

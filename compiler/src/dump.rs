@@ -882,7 +882,7 @@ fn if_expr(i: &IfExpr) -> String {
 
 pub fn match_item(item: &MatchItem) -> String {
     match item {
-        MatchItem::Else(body, has_end) => {
+        MatchItem::Else(body, has_end, _) => {
             let mut n = Node::new("case-else");
             n.add(&block(body));
             add_end(&mut n, *has_end);

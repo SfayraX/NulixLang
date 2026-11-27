@@ -1,0 +1,190 @@
+// Правильная программа шага 2 с match (spec/core-check.md, раздел 6): проверка её принимает.
+// В части 5 её проведут через перевод в IR, проверщик и интерпретатор, поэтому утверждения в
+// тестах верны.
+@file(develop)
+
+enum Op {
+	Add
+	Sub
+	Mul
+	Div
+}
+
+enum Expr {
+	Num(i64)
+	Neg(i64)
+	Bin(op: Op, left: i64, right: i64)
+}
+
+enum Shape {
+	Circle(r: f64)
+	Rect(w: f64, h: f64)
+	Dot
+}
+
+enum Wrap {
+	One(Op)
+	Pair(left: Op, right: Op)
+}
+
+enum Void {}
+
+struct Point {
+	x: i64
+	y: i64
+}
+
+// без else — все варианты, короткими именами и с именем типа (9.35, решение 3)
+func symbol(op: Op) -> char {
+	match op {
+		case Add { '+' }
+		case Op.Sub { '-' }
+		case Mul { '*' }
+		case Div { '/' }
+	}
+}
+
+func apply(op: Op, a: i64, b: i64) -> i64 {
+	match op {
+		case Add { a + b }
+		case Sub { a - b }
+		case Mul { a * b }
+		case Div { a / b }
+	} end match
+}
+
+// безымянное значение — один образец; поля — в порядке объявления, имя без двоеточия — имя
+// поля, `_` пропускает поле (13.11); альтернативы с условием (12.43)
+func eval(e: Expr) -> i64 {
+	match e {
+		case Num(n), Neg(n) if n == 0 { 0 }
+		case Num(n) { n }
+		case Neg(n) { -n }
+		case Bin(op: Div, _, right: 0) { 0 }
+		case Bin(op, left, right) { apply(op, left, right) }
+	}
+}
+
+// дробные поля связываются именами: образцов-чисел у дробных нет (решение 10з)
+func area(s: Shape) -> f64 {
+	match s {
+		case Circle(r) { 3.0 * r * r }
+		case Rect(w, h) { w * h }
+		case Dot { 0.0 }
+	}
+}
+
+// кортежи и bool: без else, если разобраны все сочетания
+func both(p: (bool, bool)) -> u8 {
+	match p {
+		case (true, true) { 3 }
+		case (true, false) { 2 }
+		case (false, true) { 1 }
+		case (false, false) { 0 }
+	}
+}
+
+// числа и символы — с else; условие ветви видит её имена
+func sign(x: i64) -> i64 {
+	match x {
+		case 0 { 0 }
+		case -1, -2 { -1 }
+		case n if n < 0 { -1 }
+		else { 1 }
+	}
+}
+
+func digit(c: char) -> u8 {
+	match c {
+		case '0' { 0 }
+		case '1' { 1 }
+		case '\u{41}' { 10 }
+		else { 255 }
+	}
+}
+
+// match без своего типа: значения ветвей — литералы, тип даёт место (решение 24)
+func weight(op: Op) -> u16 {
+	let w: u16 = match op {
+		case Add, Sub { 1 }
+		else { 2 }
+	}
+	let m = match op {
+		case Mul { 300 }
+		else { 0 }
+	} + w
+	m
+}
+
+// `..` пропускает остальные поля; вложенные образцы пишутся `поле: образец` (12.42, 13.11)
+func pair_kind(w: Wrap) -> u8 {
+	match w {
+		case One(_) { 0 }
+		case Pair(left: Add, right: Add) { 1 }
+		case Pair(left: Add, ..) { 2 }
+		case Pair(..) { 3 }
+	}
+}
+
+// match mut: имена из образца меняются (решение 16)
+func bump_num(mut e: Expr) {
+	match mut e {
+		case Num(n) { n += 1 }
+		else {}
+	}
+}
+
+func unwrap_num(take e: Expr) -> i64 {
+	match take e {
+		case Num(n) { n }
+		else { 0 }
+	}
+}
+
+// у перечисления без вариантов match может быть без ветвей, и его тип — Never (9.36)
+func absurd(v: Void) -> i64 {
+	match v {
+	}
+}
+
+// ветви, стоящие инструкцией, выбрасывают результат вызова (решение 4)
+func touch(op: Op) {
+	match op {
+		case Add, Sub { apply(op, 1, 2) }
+		else {}
+	}
+}
+
+func sum(p: Point) -> i64 {
+	match p {
+		case q { q.x + q.y }
+	}
+}
+
+test "match" {
+	assert symbol(Op.Add) == '+'
+	assert symbol(Op.Div) == '/'
+	assert eval(Expr.Num(5)) == 5
+	assert eval(Expr.Neg(5)) == -5
+	assert eval(Expr.Neg(0)) == 0
+	assert eval(Expr.Bin(op: Op.Div, left: 7, right: 0)) == 0
+	assert eval(Expr.Bin(op: Op.Sub, left: 7, right: 2)) == 5
+	assert area(Shape.Rect(w: 2.0, h: 3.0)) == 6.0
+	assert area(Shape.Dot) == 0.0
+	assert both((true, false)) == 2
+	assert sign(-5) == -1
+	assert sign(-2) == -1
+	assert sign(7) == 1
+	assert digit('1') == 1
+	assert digit('A') == 10
+	assert digit('z') == 255
+	assert weight(Op.Mul) == 302
+	assert pair_kind(Wrap.Pair(left: Op.Add, right: Op.Sub)) == 2
+	assert pair_kind(Wrap.One(Op.Mul)) == 0
+	assert unwrap_num(Expr.Num(4)) == 4
+	var e = Expr.Num(1)
+	bump_num(mut e)
+	assert unwrap_num(e) == 2
+	touch(Op.Add)
+	assert sum(Point(x: 1, y: 2)) == 3
+} end test
