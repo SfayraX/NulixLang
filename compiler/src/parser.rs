@@ -1984,10 +1984,11 @@ impl Parser {
     }
 
     fn match_item(&mut self) -> Res<MatchItem> {
+        let line = self.line();
         if self.eat("else") {
             let body = self.block()?;
             let has_end = self.end_kw("else")?;
-            return Ok(MatchItem::Else(body, has_end));
+            return Ok(MatchItem::Else(body, has_end, line));
         }
         self.expect("case")?;
         let mut patterns = Vec::new();

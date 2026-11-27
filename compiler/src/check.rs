@@ -3,29 +3,34 @@
 //! Правила — `spec/core-check.md`. Проверка останавливается на первой ошибке и называет её
 //! строку. Она не зависит ни от проверщика IR, ни от интерпретатора.
 //!
-//! Сейчас проверяются шаги 1 и 2 раздела 9 `spec/core-check.md`. Шаг 1 — файл, объявления и
+//! Сейчас проверяются шаги 1–3 раздела 9 `spec/core-check.md`. Шаг 1 — файл, объявления и
 //! сигнатуры: заголовок `@file`, конструкции вне шага 2, имена объявлений, типы полей, вариантов,
 //! параметров и результатов, `impl Copy for T {}`, типы, которые содержат сами себя, метки `end`
 //! у объявлений и имена тестов. Шаг 2 — выражения и инструкции в телах: локальные имена без
 //! затенения, типы и литералы, операции, вызовы и режимы аргументов, места для записи, `if`,
-//! циклы и их метки, `return`, `break`, `continue`, `assert`, недостижимый код и `Never`.
-//! `match` и владение — шаги 3 и 4 — пока не проверяются.
+//! циклы и их метки, `return`, `break`, `continue`, `assert`, недостижимый код и `Never`. Шаг 3
+//! — `match`: образцы, имена из них, альтернативы, условия ветвей, режим `mut`, полнота и
+//! недостижимые ветви; полноту и недостижимое считает `patterns.rs`. Владение — шаг 4 — пока
+//! не проверяется.
 //!
 //! Порядок: сначала все объявления по порядку файла — их форма и имена; затем типы полей,
 //! вариантов, параметров и результатов; затем `impl Copy`; затем типы, которые содержат сами
 //! себя; затем простота частей у типов с `impl Copy`; затем тела функций и тестов по порядку
 //! файла. Внутри тела условия `if` проверяются раньше его ветвей, а операнд и ветвь со своим
-//! типом — раньше остальных (раздел 4, «Операции»), поэтому первой может оказаться ошибка правее
-//! или ниже по тексту. Рекурсия идёт по вложенности типов, выражений и блоков, а её ограничивает
-//! предел вложенности разборщика; вызывать проверку, как и разбор, нужно через `stack::run`.
+//! типом — раньше остальных (раздел 4, «Операции»). В `match` — значение, затем образцы и
+//! условия ветвей по порядку, затем недостижимые ветви и полнота, затем тела ветвей, как у
+//! `if`. Поэтому первой может оказаться ошибка правее или ниже по тексту. Рекурсия идёт по
+//! вложенности типов, выражений, блоков и образцов, а её ограничивает предел вложенности
+//! разборщика; вызывать проверку, как и разбор, нужно через `stack::run`.
 
 use crate::ast;
 use crate::core::{
-    Arg, BinOp, Block, Body, Expr, ExprKind, Field, Func, FuncId, Local, LocalId, LocalKind,
-    LoopId, Param, Payload, Place, Program, Step, Stmt, StmtKind, Test, TuplePattern, Type,
-    TypeDecl, TypeId, TypeKind, UnOp, Variant, VariantValue,
+    Arg, BinOp, Block, Body, Case, Expr, ExprKind, Field, Func, FuncId, Local, LocalId, LocalKind,
+    LoopId, Match, Param, Pattern, PatternKind, Payload, Place, Program, Step, Stmt, StmtKind,
+    Test, TuplePattern, Type, TypeDecl, TypeId, TypeKind, UnOp, Variant, VariantValue,
 };
 use crate::ir::{Mode, Scalar};
+use crate::patterns;
 use std::collections::{HashMap, HashSet};
 
 /// Ошибка проверки: строка и сообщение.
@@ -89,7 +94,8 @@ pub fn check(file: &ast::File) -> R<Program> {
     }
     c.resolve()?;
     c.copy_impls()?;
-    c.self_containing()?;
+    let order = c.self_containing()?;
+    c.inhabited(&order);
     c.copy_parts()?;
     c.bodies()?;
     Ok(c.program)
@@ -431,6 +437,8 @@ impl<'a> Checker<'a> {
         self.program.types.push(TypeDecl {
             name: name.to_string(),
             copy: false,
+            // считается в `inhabited`, когда известны все части
+            inhabited: false,
             kind,
             line,
         });
@@ -622,9 +630,11 @@ impl<'a> Checker<'a> {
 
     /// Тип не содержит сам себя ни прямо, ни через кортежи, массивы, записи и варианты:
     /// косвенности и кучи в шаге 2 нет (9.9). Обход — без рекурсии, по явному стеку: цепочка
-    /// объявлений может быть сколь угодно длинной.
-    fn self_containing(&self) -> R<()> {
+    /// объявлений может быть сколь угодно длинной. Отдаёт типы в таком порядке, что каждый стоит
+    /// после всех записей и перечислений, из которых он состоит.
+    fn self_containing(&self) -> R<Vec<TypeId>> {
         let types = &self.program.types;
+        let mut order = Vec::new();
         let mut edges: Vec<Vec<TypeId>> = Vec::new();
         for decl in types {
             let mut parts = Vec::new();
@@ -662,6 +672,7 @@ impl<'a> Checker<'a> {
                 let (v, k) = *top;
                 if k == edges[v].len() {
                     state[v] = 2;
+                    order.push(v);
                     path.pop();
                     continue;
                 }
@@ -693,7 +704,22 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        Ok(())
+        Ok(order)
+    }
+
+    /// Есть ли у записей и перечислений значения (решение 28). Типы идут так, что части каждого
+    /// уже посчитаны, поэтому хватает одного прохода.
+    fn inhabited(&mut self, order: &[TypeId]) {
+        for &id in order {
+            let p = &self.program;
+            let inhabited = match &p.types[id].kind {
+                TypeKind::Struct(fields) => fields.iter().all(|f| p.has_values(&f.ty)),
+                TypeKind::Enum(variants) => {
+                    variants.iter().any(|v| p.payload_has_values(&v.payload))
+                }
+            };
+            self.program.types[id].inhabited = inhabited;
+        }
     }
 
     /// У типа с `impl Copy` все поля и все значения вариантов простые (12.27, 10.2).
@@ -841,7 +867,21 @@ pub(crate) fn decode_string(raw: &str) -> Result<String, String> {
 // ───────── тела функций и тестов ─────────
 
 const BOOL: Type = Type::Scalar(Scalar::Bool);
+const CHAR: Type = Type::Scalar(Scalar::Char);
 const I64: Type = Type::Scalar(Scalar::I64);
+
+/// Символ из литерала: экранирование проверено, в символе ровно один знак.
+fn char_value(raw: &str, line: u32) -> R<char> {
+    let text = match decode_string(raw) {
+        Ok(text) => text,
+        Err(message) => return fail(line, message),
+    };
+    let mut chars = text.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => Ok(c),
+        _ => fail(line, "в символе ровно один знак".to_string()),
+    }
+}
 
 fn is_int(ty: &Type) -> bool {
     matches!(ty, Type::Scalar(s) if s.int_range().is_some())
@@ -868,8 +908,8 @@ fn tail(block: &ast::Block) -> Option<&ast::Expr> {
 
 /// Выражение без своего типа: его тип задаёт место или другой операнд (решения 2 и 24). Это
 /// числовой литерал; скобки, минус и `~` вокруг такого выражения; арифметика и `&`, `|`, `^`,
-/// где все операнды такие; сдвиг, где такой левый операнд; `if` с `else`, где значения всех
-/// ветвей такие; кортеж и массив, где каждый элемент такой или литерал.
+/// где все операнды такие; сдвиг, где такой левый операнд; `if` с `else` и `match`, где значения
+/// всех ветвей такие; кортеж и массив, где каждый элемент такой или литерал.
 fn literal_like(e: &ast::Expr) -> bool {
     match &e.kind {
         ast::ExprKind::Int(_) | ast::ExprKind::Float(_) => true,
@@ -903,7 +943,29 @@ fn literal_like(e: &ast::Expr) -> bool {
                 !tails.is_empty() && tails.iter().all(|t| literal_like(t))
             }
         },
+        ast::ExprKind::Match(m) => {
+            let tails: Vec<&ast::Expr> = m.items.iter().map(item_block).filter_map(tail).collect();
+            !tails.is_empty() && tails.iter().all(|t| literal_like(t))
+        }
         _ => false,
+    }
+}
+
+/// Порядок проверки ветвей `if` и `match`: сначала ветви, чьё значение со своим типом, затем
+/// ветви со значением из литералов, затем ветви без значения (раздел 4, «Операции»).
+fn branch_order(blocks: &[&ast::Block]) -> Vec<usize> {
+    let mut order: Vec<usize> = Vec::new();
+    order.extend((0..blocks.len()).filter(|&k| tail(blocks[k]).is_some_and(|t| !literal_like(t))));
+    order.extend((0..blocks.len()).filter(|&k| tail(blocks[k]).is_some_and(literal_like)));
+    order.extend((0..blocks.len()).filter(|&k| tail(blocks[k]).is_none()));
+    order
+}
+
+/// Тело ветви `match`: `case` или `else`.
+fn item_block(item: &ast::MatchItem) -> &ast::Block {
+    match item {
+        ast::MatchItem::Case(c) => &c.body,
+        ast::MatchItem::Else(b, ..) => b,
     }
 }
 
@@ -1047,6 +1109,39 @@ impl<'a> Checker<'a> {
     }
 }
 
+/// Ветвь `match` после образцов и условия; тело проверяется потом.
+enum Head<'a> {
+    Case {
+        patterns: Vec<Pattern>,
+        guard: Option<Expr>,
+        /// Имена из образцов с номерами — чтобы снова открыть их для тела.
+        names: Vec<(&'a str, LocalId)>,
+        body: &'a ast::Block,
+        line: u32,
+    },
+    /// Тело `else` и строка слова `else`.
+    Else(&'a ast::Block, u32),
+}
+
+/// Что недостижимо: ветвь целиком, её альтернатива с номером от 1 или `else`.
+#[derive(Clone, Copy)]
+enum Subject {
+    Branch,
+    Alternative(usize),
+    Else,
+}
+
+/// Как связываются имена образца: первая альтернатива ветви объявляет их в режиме `match`,
+/// остальные связывают те же имена тех же типов (12.43).
+enum Binds<'b, 'a> {
+    Declare(Mode),
+    Same {
+        first: &'b [(&'a str, LocalId)],
+        seen: Vec<bool>,
+        alternative: usize,
+    },
+}
+
 /// Проверка одного тела.
 struct BodyChecker<'c, 'a> {
     c: &'c Checker<'a>,
@@ -1145,11 +1240,46 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
         Ok(id)
     }
 
-    /// В место можно писать: это `var`, параметр `mut` или `take` (12.12, 12.58, 12.60).
+    /// Закрывает последнюю открытую область: её имена перестают быть видны. Отдаёт их с
+    /// номерами.
+    fn close_scope(&mut self) -> Vec<(&'a str, LocalId)> {
+        let mut out = Vec::new();
+        if let Some(names) = self.scopes.pop() {
+            for name in names {
+                if let Some(id) = self.visible.remove(name) {
+                    out.push((name, id));
+                }
+            }
+        }
+        out
+    }
+
+    /// Снова открывает имена ветви `match` для её тела: на затенение их уже проверили, когда
+    /// объявляли.
+    fn reopen_scope(&mut self, names: &[(&'a str, LocalId)]) {
+        self.scopes
+            .push(names.iter().map(|&(name, _)| name).collect());
+        for &(name, id) in names {
+            self.visible.insert(name, id);
+        }
+    }
+
+    /// В место можно писать: это `var`, параметр `mut` или `take` и имя из `match mut` (12.12,
+    /// 12.58, 12.60, решение 16).
     fn writable(&self, local: LocalId, line: u32) -> R<()> {
         let l = &self.locals[local];
         match l.kind {
-            LocalKind::Var | LocalKind::Param(Mode::Mut) | LocalKind::Param(Mode::Take) => Ok(()),
+            LocalKind::Var
+            | LocalKind::Param(Mode::Mut)
+            | LocalKind::Param(Mode::Take)
+            | LocalKind::Bound(Mode::Mut) => Ok(()),
+            LocalKind::Bound(_) => fail(
+                line,
+                format!(
+                    "{} — имя из образца: оно не меняется, кроме имён из match mut (решение 16)",
+                    l.name
+                ),
+            ),
             LocalKind::Let => fail(
                 line,
                 format!(
@@ -1219,11 +1349,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
                 }
             }
         }
-        if let Some(names) = self.scopes.pop() {
-            for name in names {
-                self.visible.remove(name);
-            }
-        }
+        self.close_scope();
         if let Some(want) = want {
             if ty != *want && ty != Type::Never {
                 let message = match b.stmts.last() {
@@ -1255,12 +1381,13 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
         let (kind, leaves) = match &st.kind {
             ast::StmtKind::Binding(b) => (self.binding(b)?, false),
             ast::StmtKind::Expr(e) => {
-                // ветви if в инструкции — тоже инструкции (решение 4); скобки этого не меняют
+                // ветви if и match в инструкции — тоже инструкции (решение 4); скобки этого не
+                // меняют
                 let mut bare = e;
                 while let ast::ExprKind::Paren(inner) = &bare.kind {
                     bare = inner;
                 }
-                let v = if matches!(bare.kind, ast::ExprKind::If(_)) {
+                let v = if matches!(bare.kind, ast::ExprKind::If(_) | ast::ExprKind::Match(_)) {
                     self.expr(bare, Some(&Type::Unit))?
                 } else {
                     self.expr(bare, None)?
@@ -1638,21 +1765,11 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
                 ty: BOOL,
                 line,
             },
-            ast::ExprKind::Char(raw) => {
-                let text = match decode_string(raw) {
-                    Ok(text) => text,
-                    Err(message) => return fail(line, message),
-                };
-                let mut chars = text.chars();
-                match (chars.next(), chars.next()) {
-                    (Some(c), None) => Expr {
-                        kind: ExprKind::Char(c),
-                        ty: Type::Scalar(Scalar::Char),
-                        line,
-                    },
-                    _ => return fail(line, "в символе ровно один знак".to_string()),
-                }
-            }
+            ast::ExprKind::Char(raw) => Expr {
+                kind: ExprKind::Char(char_value(raw, line)?),
+                ty: CHAR,
+                line,
+            },
             ast::ExprKind::Unit => Expr {
                 kind: ExprKind::Unit,
                 ty: Type::Unit,
@@ -1685,12 +1802,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
             ast::ExprKind::Is(..) => return outside(line, "is"),
             ast::ExprKind::Catch(_) => return outside(line, "catch"),
             ast::ExprKind::If(ifx) => self.if_expr(ifx, line, want)?,
-            ast::ExprKind::Match(_) => {
-                return fail(
-                    line,
-                    "match ещё не проверяется: это шаг 3 раздела 9 spec/core-check.md".to_string(),
-                )
-            }
+            ast::ExprKind::Match(m) => self.match_expr(m, line, want)?,
             ast::ExprKind::Closure(_) => return outside(line, "замыкания"),
             ast::ExprKind::Trust(_) => return outside(line, "trust"),
             ast::ExprKind::Provide(_) => return outside(line, "provide"),
@@ -1704,6 +1816,22 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
 
     /// Целый литерал: тип места, иначе `i64`; значение помещается в тип (12.56, решение 2).
     fn int_literal(&self, text: &str, negative: bool, line: u32, want: Option<&Type>) -> R<Expr> {
+        let (value, scalar) = self.int_value(text, negative, line, want)?;
+        Ok(Expr {
+            kind: ExprKind::Int(value),
+            ty: Type::Scalar(scalar),
+            line,
+        })
+    }
+
+    /// Значение и тип целого литерала: тип по месту, без места — `i64` (решение 2, 12.56).
+    fn int_value(
+        &self,
+        text: &str,
+        negative: bool,
+        line: u32,
+        want: Option<&Type>,
+    ) -> R<(i128, Scalar)> {
         let shown = if negative {
             format!("-{}", text)
         } else {
@@ -1758,11 +1886,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
                 format!("число {} не помещается в {} (12.56)", shown, scalar.name()),
             );
         }
-        Ok(Expr {
-            kind: ExprKind::Int(value),
-            ty: Type::Scalar(scalar),
-            line,
-        })
+        Ok((value, scalar))
     }
 
     /// Дробный литерал: `f32` или `f64` по месту, без места — `f64`; остаётся конечным (12.56).
@@ -2108,15 +2232,9 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
             .map(|b| &b.then)
             .chain(std::iter::once(otherwise))
             .collect();
-        let mut order: Vec<usize> = Vec::new();
-        order.extend(
-            (0..blocks.len()).filter(|&k| tail(blocks[k]).is_some_and(|t| !literal_like(t))),
-        );
-        order.extend((0..blocks.len()).filter(|&k| tail(blocks[k]).is_some_and(literal_like)));
-        order.extend((0..blocks.len()).filter(|&k| tail(blocks[k]).is_none()));
         let mut ty: Option<Type> = want.cloned();
         let mut checked: Vec<Option<Block>> = vec![None; blocks.len()];
-        for k in order {
+        for k in branch_order(&blocks) {
             let b = self.block(blocks[k], ty.as_ref())?;
             if ty.is_none() && b.ty != Type::Never {
                 ty = Some(b.ty.clone());
@@ -2141,6 +2259,732 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
             ty,
             line,
         })
+    }
+
+    // ───────── match ─────────
+
+    /// `match` (12.41, раздел 6). Сначала значение, затем образцы и условия ветвей по порядку,
+    /// затем недостижимые ветви и полнота, затем тела — как ветви `if`: ветвь со своим типом
+    /// раньше остальных.
+    fn match_expr(&mut self, m: &'a ast::MatchExpr, line: u32, want: Option<&Type>) -> R<Expr> {
+        let value = if m.mode == Some(ast::Mode::Mut) {
+            let (place, ty) = self.place(
+                &m.value,
+                "match mut — только у места: переменной, параметра, их поля или элемента",
+            )?;
+            Expr {
+                kind: ExprKind::Place(place),
+                ty,
+                line: m.value.line,
+            }
+        } else {
+            let v = self.expr(&m.value, None)?;
+            // место типа Never сравнивают в match без ветвей: ветвей у него нет, и недостижимого
+            // кода тоже (решение 28)
+            if matches!(v.kind, ExprKind::Place(_)) {
+                v
+            } else {
+                self.valued(v)?
+            }
+        };
+        // режим, которым сравнивается значение: временное значение образец забирает сам (12.62)
+        let mode = match m.mode {
+            Some(ast::Mode::Mut) => Mode::Mut,
+            Some(ast::Mode::Take) => Mode::Take,
+            None if matches!(value.kind, ExprKind::Place(_)) => Mode::Read,
+            None => Mode::Take,
+        };
+        let mut heads: Vec<Head<'a>> = Vec::new();
+        for item in &m.items {
+            heads.push(match item {
+                ast::MatchItem::Case(c) => self.case_head(c, &value.ty, mode)?,
+                ast::MatchItem::Else(b, _, at) => Head::Else(b, *at),
+            });
+        }
+        self.coverage(&heads, &value.ty, line)?;
+        let blocks: Vec<&'a ast::Block> = heads
+            .iter()
+            .map(|h| match h {
+                Head::Case { body, .. } => *body,
+                Head::Else(b, _) => *b,
+            })
+            .collect();
+        let mut ty: Option<Type> = want.cloned();
+        let mut checked: Vec<Option<Block>> = vec![None; blocks.len()];
+        for k in branch_order(&blocks) {
+            // имена ветви видны и в её теле
+            let names = match &heads[k] {
+                Head::Case { names, .. } => names.clone(),
+                Head::Else(..) => Vec::new(),
+            };
+            self.reopen_scope(&names);
+            let b = self.block(blocks[k], ty.as_ref());
+            self.close_scope();
+            let b = b?;
+            if ty.is_none() && b.ty != Type::Never {
+                ty = Some(b.ty.clone());
+            }
+            checked[k] = Some(b);
+        }
+        let mut cases = Vec::new();
+        let mut otherwise = None;
+        for (head, body) in heads.into_iter().zip(checked) {
+            let body = body.unwrap_or_default();
+            match head {
+                Head::Case {
+                    patterns,
+                    guard,
+                    line,
+                    ..
+                } => cases.push(Case {
+                    patterns,
+                    guard,
+                    body,
+                    line,
+                }),
+                // недостижимых ветвей нет, поэтому else — последний и один
+                Head::Else(..) => otherwise = Some(body),
+            }
+        }
+        // уходят все ветви — уходит и match; без ветвей он бывает только по значению типа без
+        // значений (9.36, решение 28)
+        let all_leave = cases.iter().all(|c| c.body.ty == Type::Never)
+            && otherwise.as_ref().is_none_or(|b| b.ty == Type::Never);
+        let ty = if all_leave {
+            Type::Never
+        } else {
+            ty.unwrap_or(Type::Unit)
+        };
+        Ok(Expr {
+            kind: ExprKind::Match(Box::new(Match {
+                value,
+                mode,
+                cases,
+                otherwise,
+            })),
+            ty,
+            line,
+        })
+    }
+
+    /// Образцы и условие ветви. Первая альтернатива объявляет имена, остальные связывают те же
+    /// имена тех же типов (12.43); имена видны в условии, затем область закрывается до тела.
+    fn case_head(&mut self, c: &'a ast::MatchCase, ty: &Type, mode: Mode) -> R<Head<'a>> {
+        self.scopes.push(Vec::new());
+        let mut patterns = Vec::new();
+        let mut first: Vec<(&'a str, LocalId)> = Vec::new();
+        for (k, p) in c.patterns.iter().enumerate() {
+            if k == 0 {
+                patterns.push(self.pattern(p, ty, &mut Binds::Declare(mode))?);
+                first = match self.scopes.last() {
+                    Some(names) => names
+                        .iter()
+                        .filter_map(|&name| self.visible.get(name).map(|&id| (name, id)))
+                        .collect(),
+                    None => Vec::new(),
+                };
+                continue;
+            }
+            let mut binds = Binds::Same {
+                first: &first,
+                seen: vec![false; first.len()],
+                alternative: k + 1,
+            };
+            patterns.push(self.pattern(p, ty, &mut binds)?);
+            if let Binds::Same { seen, .. } = &binds {
+                if let Some(j) = seen.iter().position(|s| !s) {
+                    return fail(
+                        p.line,
+                        format!(
+                            "альтернатива {} не связывает имя {}: альтернативы связывают одинаковые имена (12.43)",
+                            k + 1,
+                            first[j].0
+                        ),
+                    );
+                }
+            }
+        }
+        let guard = match &c.guard {
+            Some(g) => Some(self.inner(g, Some(&BOOL))?),
+            None => None,
+        };
+        let names = self.close_scope();
+        Ok(Head::Case {
+            patterns,
+            guard,
+            names,
+            body: &c.body,
+            line: c.patterns.first().map_or(0, |p| p.line),
+        })
+    }
+
+    /// Недостижимые ветви и полнота (раздел 6, решения 7 и 28, 9.35).
+    fn coverage(&self, heads: &[Head<'a>], ty: &Type, line: u32) -> R<()> {
+        let rows: Vec<patterns::Row> = heads
+            .iter()
+            .map(|h| match h {
+                Head::Case {
+                    patterns, guard, ..
+                } => patterns::Row {
+                    alternatives: patterns.iter().map(Some).collect(),
+                    guarded: guard.is_some(),
+                },
+                Head::Else(..) => patterns::Row {
+                    alternatives: vec![None],
+                    guarded: false,
+                },
+            })
+            .collect();
+        match patterns::check(self.p, ty, &rows) {
+            Ok(()) => Ok(()),
+            Err(patterns::Problem::Unreachable {
+                row,
+                alternative,
+                cause,
+            }) => {
+                let (at, subject) = match (&heads[row], alternative) {
+                    (Head::Else(_, at), _) => (*at, Subject::Else),
+                    (Head::Case { patterns, .. }, Some(k)) => {
+                        (patterns[k].line, Subject::Alternative(k + 1))
+                    }
+                    (Head::Case { line, .. }, None) => (*line, Subject::Branch),
+                };
+                fail(at, self.unreachable(heads, ty, row, subject, cause))
+            }
+            Err(patterns::Problem::Missing(Some(example))) => {
+                let guarded = heads
+                    .iter()
+                    .any(|h| matches!(h, Head::Case { guard: Some(_), .. }));
+                let message = if guarded {
+                    format!(
+                        "match разбирает не все значения: например, {} не подходит ни к одной ветви без условия, а ветви с условием в полноте не участвуют (9.35); добавьте ветвь или else",
+                        example
+                    )
+                } else {
+                    format!(
+                        "match разбирает не все значения: например, {} не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+                        example
+                    )
+                };
+                fail(line, message)
+            }
+            // пример не нужен: ни одна ветвь без условия ничего не разбирает
+            Err(patterns::Problem::Missing(None)) if heads.is_empty() => fail(
+                line,
+                format!(
+                    "match без ветвей бывает только по значению типа без значений, а у {} значения есть (решение 28); добавьте ветвь или else",
+                    self.text(ty)
+                ),
+            ),
+            Err(patterns::Problem::Missing(None)) => fail(
+                line,
+                "у match нет ни одной ветви без условия, а ветви с условием в полноте не участвуют (9.35); добавьте ветвь без условия или else"
+                    .to_string(),
+            ),
+        }
+    }
+
+    /// Сообщение о недостижимой ветви `row`, её альтернативе или `else` (решения 7 и 28).
+    fn unreachable(
+        &self,
+        heads: &[Head<'a>],
+        ty: &Type,
+        row: usize,
+        subject: Subject,
+        cause: patterns::Cause,
+    ) -> String {
+        let what = match subject {
+            Subject::Branch => "ветвь недостижима".to_string(),
+            Subject::Alternative(k) => format!("альтернатива {} недостижима", k),
+            Subject::Else => "else недостижим".to_string(),
+        };
+        match cause {
+            patterns::Cause::NoValues(t) => {
+                let (to, needless) = match subject {
+                    Subject::Branch => ("к ветви".to_string(), "ветвь не нужна"),
+                    Subject::Alternative(k) => {
+                        (format!("к альтернативе {}", k), "альтернатива не нужна")
+                    }
+                    Subject::Else => ("к else".to_string(), "else не нужен"),
+                };
+                format!(
+                    "{} не подходит ни одно значение: у типа {} значений нет (решение 28); {}",
+                    to,
+                    self.text(&t),
+                    needless
+                )
+            }
+            patterns::Cause::Covered => match subject {
+                Subject::Branch => format!(
+                    "{}: все её значения разобраны ветвями выше (решение 7)",
+                    what
+                ),
+                Subject::Alternative(_) => {
+                    format!("{}: все её значения разобраны выше (решение 7)", what)
+                }
+                Subject::Else => {
+                    format!("{}: все значения разобраны ветвями выше (решение 7)", what)
+                }
+            },
+            patterns::Cause::CoveredBy {
+                row: by,
+                alternative,
+            } => {
+                let p = match &heads[by] {
+                    Head::Else(_, at) => {
+                        return self.caught(
+                            &what,
+                            subject,
+                            &format!("else в строке {}", at),
+                            None,
+                            ty,
+                        )
+                    }
+                    Head::Case { patterns, .. } => &patterns[alternative],
+                };
+                let same = by == row;
+                match &p.kind {
+                    PatternKind::Skip | PatternKind::Bind(_) => {
+                        let by_text = if same {
+                            format!("альтернатива {}", alternative + 1)
+                        } else {
+                            format!("ветвь в строке {}", p.line)
+                        };
+                        self.caught(&what, subject, &by_text, Some(&p.kind), ty)
+                    }
+                    _ if same => format!(
+                        "{}: все её значения разобраны альтернативой {} (решение 7)",
+                        what,
+                        alternative + 1
+                    ),
+                    _ => format!(
+                        "{}: все её значения разобраны ветвью в строке {} (решение 7)",
+                        what, p.line
+                    ),
+                }
+            }
+        }
+    }
+
+    /// Сообщение, когда всё разобрала ветвь или альтернатива `by` выше, к которой подходит любое
+    /// значение: `_`, имя или `else`.
+    fn caught(
+        &self,
+        what: &str,
+        subject: Subject,
+        by: &str,
+        kind: Option<&PatternKind>,
+        ty: &Type,
+    ) -> String {
+        // имя, которое не вариант, — новое имя, и часто это опечатка в варианте (12.42)
+        if let (Some(PatternKind::Bind(id)), Type::Named(e)) = (kind, ty) {
+            let decl = &self.p.types[*e];
+            if matches!(decl.kind, TypeKind::Enum(_)) {
+                let x = &self.locals[*id].name;
+                return format!(
+                    "{}: {} подходит к любому значению — у {} нет варианта {}, поэтому {} там новое имя (12.42, решение 7)",
+                    what, by, decl.name, x, x
+                );
+            }
+        }
+        match subject {
+            Subject::Branch => format!(
+                "{}: {} подходит к любому значению (решение 7); удалите эту ветвь или поставьте её выше",
+                what, by
+            ),
+            Subject::Alternative(_) | Subject::Else => {
+                format!("{}: {} подходит к любому значению (решение 7)", what, by)
+            }
+        }
+    }
+
+    /// Образец по значению типа `ty` (раздел 6; 12.42, 12.43, 13.10, 13.11).
+    fn pattern(&mut self, p: &'a ast::Pattern, ty: &Type, binds: &mut Binds<'_, 'a>) -> R<Pattern> {
+        let line = p.line;
+        let kind = match &p.kind {
+            ast::PatternKind::Wildcard => PatternKind::Skip,
+            ast::PatternKind::Int(negative, text) => {
+                if is_float(ty) {
+                    return fail(
+                        line,
+                        format!(
+                            "образец-число на месте дробного {}: у дробных нет полного равенства (решение 10з)",
+                            self.text(ty)
+                        ),
+                    );
+                }
+                PatternKind::Int(self.int_value(text, *negative, line, Some(ty))?.0)
+            }
+            ast::PatternKind::Float(negative, text) => {
+                return fail(
+                    line,
+                    format!(
+                    "дробное число {}{} в образце: у дробных нет полного равенства (решение 10з)",
+                    if *negative { "-" } else { "" },
+                    text
+                ),
+                )
+            }
+            ast::PatternKind::Str(_) => return outside(line, "строки"),
+            ast::PatternKind::Char(raw) => {
+                if *ty != CHAR {
+                    return self.mismatch(line, ty, &CHAR);
+                }
+                PatternKind::Char(char_value(raw, line)?)
+            }
+            ast::PatternKind::Bool(b) => {
+                if *ty != BOOL {
+                    return self.mismatch(line, ty, &BOOL);
+                }
+                PatternKind::Bool(*b)
+            }
+            ast::PatternKind::Path(names) => self.path_pattern(names, ty, line, binds)?,
+            ast::PatternKind::Ctor(names, args) => {
+                self.variant_pattern(names, args, ty, line, binds)?
+            }
+            ast::PatternKind::Tuple(items) => match ty {
+                Type::Tuple(parts) if parts.len() == items.len() => {
+                    let mut out = Vec::new();
+                    for (item, part) in items.iter().zip(parts) {
+                        out.push(self.pattern(item, part, binds)?);
+                    }
+                    PatternKind::Tuple(out)
+                }
+                _ => {
+                    return fail(
+                        line,
+                        format!(
+                            "образец из {} частей, а значение типа {}",
+                            items.len(),
+                            self.text(ty)
+                        ),
+                    )
+                }
+            },
+        };
+        Ok(Pattern {
+            kind,
+            ty: ty.clone(),
+            line,
+        })
+    }
+
+    /// Образец без скобок: вариант без значения или новое имя. Короткое имя — вариант, если это
+    /// вариант ожидаемого перечисления, иначе — новое имя (12.42, решение 3).
+    fn path_pattern(
+        &mut self,
+        names: &'a [String],
+        ty: &Type,
+        line: u32,
+        binds: &mut Binds<'_, 'a>,
+    ) -> R<PatternKind> {
+        match names {
+            [name] => match self.variant_of(ty, name) {
+                Some((id, k)) => self.unit_variant(id, k, name, line),
+                None => Ok(PatternKind::Bind(self.bind(name, ty, line, binds)?)),
+            },
+            [owner, name] => {
+                let (id, k) = self.qualified_variant(owner, name, ty, line)?;
+                self.unit_variant(id, k, &format!("{}.{}", owner, name), line)
+            }
+            _ => fail(line, "в образце вариант пишется V или E.V".to_string()),
+        }
+    }
+
+    /// Вариант ожидаемого перечисления с таким именем.
+    fn variant_of(&self, ty: &Type, name: &str) -> Option<(TypeId, usize)> {
+        match ty {
+            Type::Named(id) => self.t.variants[*id].get(name).map(|&k| (*id, k)),
+            _ => None,
+        }
+    }
+
+    /// Вариант `E.V` в образце: перечисление — то, которое ждут (решение 3).
+    fn qualified_variant(
+        &self,
+        owner: &str,
+        name: &str,
+        ty: &Type,
+        line: u32,
+    ) -> R<(TypeId, usize)> {
+        let id = match self.c.names.get(owner) {
+            Some((Item::Type(id), _)) => *id,
+            _ if builtin_type(owner) || STANDARD_NAMES.contains(&owner) => {
+                return fail(line, format!("{} — не перечисление пакета", owner))
+            }
+            _ => return fail(line, format!("нет перечисления {}", owner)),
+        };
+        if let TypeKind::Struct(_) = self.p.types[id].kind {
+            return fail(line, format!("{} — запись, а не перечисление", owner));
+        }
+        if *ty != Type::Named(id) {
+            return self.mismatch(line, ty, &Type::Named(id));
+        }
+        match self.t.variants[id].get(name) {
+            Some(&k) => Ok((id, k)),
+            None => fail(
+                line,
+                format!("у перечисления {} нет варианта {}", owner, name),
+            ),
+        }
+    }
+
+    /// Вариант без скобок: у него не должно быть значения (12.42).
+    fn unit_variant(&self, id: TypeId, k: usize, written: &str, line: u32) -> R<PatternKind> {
+        let (full, payload) = self.variant_decl(id, k);
+        match payload {
+            Some(Payload::None) => Ok(PatternKind::Variant(id, k, Vec::new())),
+            _ => fail(
+                line,
+                format!("у варианта {} есть значение: case {}(…)", full, written),
+            ),
+        }
+    }
+
+    /// Полное имя варианта `E.V` и что он несёт.
+    fn variant_decl(&self, id: TypeId, k: usize) -> (String, Option<&'c Payload>) {
+        let decl = &self.p.types[id];
+        match &decl.kind {
+            TypeKind::Enum(variants) => (
+                format!("{}.{}", decl.name, variants[k].name),
+                Some(&variants[k].payload),
+            ),
+            TypeKind::Struct(_) => (decl.name.clone(), None),
+        }
+    }
+
+    /// Образец со скобками: вариант со значением (12.42, 13.11).
+    fn variant_pattern(
+        &mut self,
+        names: &'a [String],
+        args: &'a [ast::PatternArg],
+        ty: &Type,
+        line: u32,
+        binds: &mut Binds<'_, 'a>,
+    ) -> R<PatternKind> {
+        let (id, k, written) = match names {
+            [name] => match self.variant_of(ty, name) {
+                Some((id, k)) => (id, k, name.clone()),
+                None => return self.not_variant(name, ty, line),
+            },
+            [owner, name] => {
+                let (id, k) = self.qualified_variant(owner, name, ty, line)?;
+                (id, k, format!("{}.{}", owner, name))
+            }
+            _ => {
+                return fail(
+                    line,
+                    "в образце вариант пишется V(…) или E.V(…)".to_string(),
+                )
+            }
+        };
+        let (full, payload) = self.variant_decl(id, k);
+        let items = match payload {
+            Some(Payload::One(t)) => match args {
+                [ast::PatternArg::Pattern(inner)] => vec![self.pattern(inner, t, binds)?],
+                _ => {
+                    return fail(
+                        line,
+                        format!(
+                            "вариант {} несёт одно значение без имени: case {}(образец)",
+                            full, written
+                        ),
+                    )
+                }
+            },
+            Some(Payload::Fields(fields)) => {
+                self.field_patterns(fields, args, &full, line, binds)?
+            }
+            _ => {
+                return fail(
+                    line,
+                    format!("у варианта {} нет значения: case {}", full, written),
+                )
+            }
+        };
+        Ok(PatternKind::Variant(id, k, items))
+    }
+
+    /// Имя со скобками, которое не вариант ожидаемого перечисления.
+    fn not_variant<T>(&self, name: &str, ty: &Type, line: u32) -> R<T> {
+        if let Some((Item::Type(id), _)) = self.c.names.get(name) {
+            if let TypeKind::Struct(_) = self.p.types[*id].kind {
+                return outside(line, "образец записи (решение 13)");
+            }
+        }
+        match ty {
+            Type::Named(id) if matches!(self.p.types[*id].kind, TypeKind::Enum(_)) => fail(
+                line,
+                format!(
+                    "у перечисления {} нет варианта {}",
+                    self.p.types[*id].name, name
+                ),
+            ),
+            _ if matches!(name, "Some" | "None") => outside(line, "Option"),
+            _ if matches!(name, "Ok" | "Err") => outside(line, "Result"),
+            _ => fail(
+                line,
+                format!(
+                    "образец {}(…) — вариант, а значение типа {}",
+                    name,
+                    self.text(ty)
+                ),
+            ),
+        }
+    }
+
+    /// Образцы именованных полей: в порядке объявления, имя без двоеточия — имя поля, `_`
+    /// пропускает одно поле, `..` — остальные и стоит последним (12.42, 13.11).
+    fn field_patterns(
+        &mut self,
+        fields: &'c [Field],
+        args: &'a [ast::PatternArg],
+        full: &str,
+        line: u32,
+        binds: &mut Binds<'_, 'a>,
+    ) -> R<Vec<Pattern>> {
+        // строка части образца; у `..` своей строки нет
+        let arg_line = |arg: &ast::PatternArg| match arg {
+            ast::PatternArg::Pattern(p) | ast::PatternArg::Field(_, p) => p.line,
+            ast::PatternArg::Rest => line,
+        };
+        let mut out: Vec<Pattern> = Vec::new();
+        let mut rest = false;
+        for (j, arg) in args.iter().enumerate() {
+            let k = out.len();
+            match arg {
+                ast::PatternArg::Rest => {
+                    if let Some(next) = args.get(j + 1) {
+                        return fail(arg_line(next), ".. стоит последним (12.42)".to_string());
+                    }
+                    rest = true;
+                }
+                _ if k == fields.len() => {
+                    return fail(
+                        arg_line(arg),
+                        format!(
+                            "у варианта {} полей: {}, а в образце больше",
+                            full,
+                            fields.len()
+                        ),
+                    )
+                }
+                ast::PatternArg::Pattern(p) => match &p.kind {
+                    ast::PatternKind::Wildcard => out.push(Pattern {
+                        kind: PatternKind::Skip,
+                        ty: fields[k].ty.clone(),
+                        line: p.line,
+                    }),
+                    ast::PatternKind::Path(names) if names.len() == 1 => {
+                        if names[0] != fields[k].name {
+                            return fail(
+                                p.line,
+                                format!(
+                                    "в образце варианта {} на этом месте поле {}: имя без двоеточия совпадает с именем поля (13.11)",
+                                    full, fields[k].name
+                                ),
+                            );
+                        }
+                        out.push(self.pattern(p, &fields[k].ty, binds)?);
+                    }
+                    _ => {
+                        let f = &fields[k].name;
+                        return fail(
+                            p.line,
+                            format!(
+                                "в образце варианта {} поле {} пишется именем {} или {}: образец (13.11)",
+                                full, f, f, f
+                            ),
+                        );
+                    }
+                },
+                ast::PatternArg::Field(name, p) => {
+                    if *name != fields[k].name {
+                        let message = if fields.iter().any(|f| f.name == *name) {
+                            format!(
+                                "в образце варианта {} на этом месте поле {}, а не {}: поля идут в порядке объявления (13.11)",
+                                full, fields[k].name, name
+                            )
+                        } else {
+                            format!("у варианта {} нет поля {}", full, name)
+                        };
+                        return fail(p.line, message);
+                    }
+                    out.push(self.pattern(p, &fields[k].ty, binds)?);
+                }
+            }
+        }
+        if rest {
+            for f in &fields[out.len()..] {
+                out.push(Pattern {
+                    kind: PatternKind::Skip,
+                    ty: f.ty.clone(),
+                    line,
+                });
+            }
+        } else if let Some(f) = fields.get(out.len()) {
+            return fail(
+                line,
+                format!(
+                    "в образце варианта {} нет поля {}: остальные поля пропускает .. (12.42)",
+                    full, f.name
+                ),
+            );
+        }
+        Ok(out)
+    }
+
+    /// Имя из образца. В первой альтернативе оно объявляется, в остальных — то же имя того же
+    /// типа (12.43).
+    fn bind(
+        &mut self,
+        name: &'a str,
+        ty: &Type,
+        line: u32,
+        binds: &mut Binds<'_, 'a>,
+    ) -> R<LocalId> {
+        match binds {
+            Binds::Declare(mode) => self.declare(name, ty.clone(), LocalKind::Bound(*mode), line),
+            Binds::Same {
+                first,
+                seen,
+                alternative,
+            } => {
+                let Some(j) = first.iter().position(|&(n, _)| n == name) else {
+                    return fail(
+                        line,
+                        format!(
+                            "имя {} связывает альтернатива {}, а первая — нет: альтернативы связывают одинаковые имена (12.43)",
+                            name, alternative
+                        ),
+                    );
+                };
+                if seen[j] {
+                    return fail(
+                        line,
+                        format!(
+                            "имя {} в альтернативе {} связано дважды (12.93)",
+                            name, alternative
+                        ),
+                    );
+                }
+                seen[j] = true;
+                let id = first[j].1;
+                if self.locals[id].ty != *ty {
+                    return fail(
+                        line,
+                        format!(
+                            "имя {} в альтернативе {} типа {}, а в первой — {}: альтернативы связывают одинаковые типы (12.43)",
+                            name,
+                            alternative,
+                            self.text(ty),
+                            self.text(&self.locals[id].ty)
+                        ),
+                    );
+                }
+                Ok(id)
+            }
+        }
     }
 
     // ───────── имена в выражениях, вызовы, поля и элементы ─────────

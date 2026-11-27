@@ -1,9 +1,9 @@
 //! Проверка явного ядра в исходнике (`spec/core-check.md`): файл, объявления и сигнатуры,
-//! выражения и инструкции в телах.
+//! выражения и инструкции в телах, `match` — образцы, полнота и недостижимые ветви.
 //!
-//! Правильные объявления и тела принимаются, и проверенное дерево несёт их типы, режимы и
-//! простоту. Каждое правило объявлений и тел нарушается по одному разу в отдельной программе, и
-//! проверка отвергает её с ожидаемыми строкой и сообщением.
+//! Правильные объявления, тела и `match` принимаются, и проверенное дерево несёт их типы,
+//! режимы и простоту. Каждое правило нарушается по одному разу в отдельной программе, и проверка
+//! отвергает её с ожидаемыми строкой и сообщением.
 
 use nulixc::check::check;
 use nulixc::core::{Payload, Program, Type, TypeKind};
@@ -1024,6 +1024,17 @@ func keep(take q: Q) -> Q {
 enum W {
 \tB(u8)
 }
+enum Duo {
+\tTwo(x: Op, y: Op)
+}
+enum Half {
+\tFull(i64)
+\tGone(Never)
+\tLost(x: i64, v: Void)
+}
+struct Nothing {
+\tn: Never
+}
 ";
 
 /// Тело с ожидаемой строкой (от начала случая) и сообщением.
@@ -1768,7 +1779,7 @@ const BODY_REJECTED: &[(&str, u32, &str)] = &[
     (
         "func f(o: Op) {\n\tmatch o {\n\t}\n}\n",
         2,
-        "match ещё не проверяется: это шаг 3 раздела 9 spec/core-check.md",
+        "match без ветвей бывает только по значению типа без значений, а у Op значения есть (решение 28); добавьте ветвь или else",
     ),
     // символ и строка сообщения — скалярные значения Unicode (9.8)
     (
@@ -2152,4 +2163,1111 @@ fn loops_and_labels_are_accepted() {
         "{}func g(c: bool) {{\n\t(if c {{ two(1, 2) }} else {{ two(3, 4) }})\n\tkeep(Q(z: 1))\n}}\n",
         PRELUDE
     ));
+}
+
+// ───────── match: неправильные программы ─────────
+
+/// Случаи `match` на объявлениях из `PRELUDE`; строки — от начала случая.
+const MATCH_REJECTED: &[(&str, u32, &str)] = &[
+    // полнота (9.35, раздел 6)
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, Op.Sub не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num(_) {}\n\t\tcase Empty {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, E.Named(..) не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num(1) {}\n\t\tcase Named(..) {}\n\t\tcase Empty {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, E.Num(0) не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    (
+        "func f(t: (bool, bool)) {\n\tmatch t {\n\t\tcase (_, true) {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, (_, false) не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    (
+        "func f(t: (bool, bool)) {\n\tmatch t {\n\t\tcase (true, _) {}\n\t\tcase (false, true) {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, (false, false) не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    (
+        "func f(o: Op, c: bool) {\n\tmatch o {\n\t\tcase Add if c {}\n\t\tcase Sub {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, Op.Add не подходит ни к одной ветви без условия, а ветви с условием в полноте не участвуют (9.35); добавьте ветвь или else",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase 0 {}\n\t\tcase 1 {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, 2 не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    // пример — из значений, к которым не подходит и ветвь с условием
+    (
+        "func f(o: Op, c: bool) {\n\tmatch o {\n\t\tcase Add if c {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, Op.Sub не подходит ни к одной ветви без условия, а ветви с условием в полноте не участвуют (9.35); добавьте ветвь или else",
+    ),
+    // ветвей без условия нет: пример не нужен
+    (
+        "func f(x: i8) {\n\tmatch x {\n\t\tcase n if n > 0 {}\n\t}\n}\n",
+        2,
+        "у match нет ни одной ветви без условия, а ветви с условием в полноте не участвуют (9.35); добавьте ветвь без условия или else",
+    ),
+    (
+        "func f(c: char) {\n\tmatch c {\n\t\tcase 'a' {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, 'b' не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    // match без ветвей — только по типу без значений (решение 28)
+    (
+        "func f(b: bool) {\n\tmatch b {\n\t}\n}\n",
+        2,
+        "match без ветвей бывает только по значению типа без значений, а у bool значения есть (решение 28); добавьте ветвь или else",
+    ),
+    (
+        "func f(p: P) {\n\tmatch p {\n\t}\n}\n",
+        2,
+        "match без ветвей бывает только по значению типа без значений, а у P значения есть (решение 28); добавьте ветвь или else",
+    ),
+    (
+        "func f(u: ()) {\n\tmatch u {\n\t}\n}\n",
+        2,
+        "match без ветвей бывает только по значению типа без значений, а у () значения есть (решение 28); добавьте ветвь или else",
+    ),
+    // пример с полями: до последнего разобранного — по именам, остальные — `..`
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Named(a: 1, ..) {}\n\t\tcase Num(_) {}\n\t\tcase Empty {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, E.Named(a: 0, ..) не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    (
+        "func f(d: Duo) {\n\tmatch d {\n\t\tcase Two(_, y: Add) {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, Duo.Two(_, y: Op.Sub) не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    (
+        "func f(d: Duo) {\n\tmatch d {\n\t\tcase Two(x: Add, y: Add) {}\n\t\tcase Two(x: Sub, ..) {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, Duo.Two(x: Op.Add, y: Op.Sub) не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    (
+        "func f(w: W) {\n\tmatch w {\n\t\tcase B(0) {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, W.B(1) не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Empty {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, E.Num(_) не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    // в примере сначала неразобранный вариант, а не неразобранная часть разобранного
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num(1) {}\n\t\tcase Empty {}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, E.Named(..) не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    // недостижимое (решение 7)
+    // ветвь выше, которая одна разобрала всё, названа строкой
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add {}\n\t\tcase Sub {}\n\t\tcase Add {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add, Add {}\n\t\tcase Sub {}\n\t}\n}\n",
+        3,
+        "альтернатива 2 недостижима: все её значения разобраны альтернативой 1 (решение 7)",
+    ),
+    (
+        "func f(o: Op, c: bool) {\n\tmatch o {\n\t\tcase Add {}\n\t\tcase Add, Sub if c {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "альтернатива 1 недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    // несколько ветвей вместе — без строки
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add {}\n\t\tcase Sub {}\n\t\tcase Add, Sub {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвями выше (решение 7)",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase 1 {}\n\t\tcase 2 {}\n\t\tcase 3, 1, 2 {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "альтернатива 2 недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    (
+        "func f(t: (bool, bool)) {\n\tmatch t {\n\t\tcase (true, _) {}\n\t\tcase (false, _) {}\n\t\tcase (_, true), (false, false) {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвями выше (решение 7)",
+    ),
+    (
+        "func f(t: (bool, bool), c: bool) {\n\tmatch t {\n\t\tcase (true, _) {}\n\t\tcase (false, true) {}\n\t\tcase (_, false), (_, true) if c {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "альтернатива 2 недостижима: все её значения разобраны выше (решение 7)",
+    ),
+    // названа первая ветвь без условия, которая одна разбирает все значения: ветвь выше с
+    // другим значением или с условием не подходит
+    (
+        "func f(o: Op, c: bool) {\n\tmatch o {\n\t\tcase Add if c {}\n\t\tcase Add {}\n\t\tcase Add {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 4 (решение 7)",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase 2 {}\n\t\tcase 1 {}\n\t\tcase 1 {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 4 (решение 7)",
+    ),
+    (
+        "func f(c: char) {\n\tmatch c {\n\t\tcase 'b' {}\n\t\tcase 'a' {}\n\t\tcase 'a' {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 4 (решение 7)",
+    ),
+    (
+        "func f(b: bool) {\n\tmatch b {\n\t\tcase false {}\n\t\tcase true {}\n\t\tcase true {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 4 (решение 7)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Empty {}\n\t\tcase Num(1) {}\n\t\tcase Num(1) {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 4 (решение 7)",
+    ),
+    (
+        "func f(t: (bool, i64)) {\n\tmatch t {\n\t\tcase (false, 1) {}\n\t\tcase (true, 1) {}\n\t\tcase (true, 1) {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 4 (решение 7)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num(2) {}\n\t\tcase Num(1) {}\n\t\tcase Num(1) {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 4 (решение 7)",
+    ),
+    // строка альтернативы — её собственная
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add {}\n\t\tcase Sub,\n\t\t\tAdd {}\n\t}\n}\n",
+        5,
+        "альтернатива 2 недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    // имя, которое разобрало всё, у записи — просто имя: вариантов у неё нет
+    (
+        "func f(p: P) {\n\tmatch p {\n\t\tcase x {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "else недостижим: ветвь в строке 3 подходит к любому значению (решение 7)",
+    ),
+    // одна ветвь выше разобрала все альтернативы
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num(_) {}\n\t\tcase Num(1), Num(2) {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add {}\n\t\tcase Sub {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "else недостижим: все значения разобраны ветвями выше (решение 7)",
+    ),
+    // ветвь выше подходит к любому значению
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\telse {}\n\t\tcase Add {}\n\t}\n}\n",
+        4,
+        "ветвь недостижима: else в строке 3 подходит к любому значению (решение 7); удалите эту ветвь или поставьте её выше",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase _ {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "else недостижим: ветвь в строке 3 подходит к любому значению (решение 7)",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\telse {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "else недостижим: else в строке 3 подходит к любому значению (решение 7)",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase _, Add {}\n\t}\n}\n",
+        3,
+        "альтернатива 2 недостижима: альтернатива 1 подходит к любому значению (решение 7)",
+    ),
+    // имя, которое не вариант, — новое имя: опечатка в варианте (12.42)
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Ad {}\n\t\tcase Sub {}\n\t}\n}\n",
+        4,
+        "ветвь недостижима: ветвь в строке 3 подходит к любому значению — у Op нет варианта Ad, поэтому Ad там новое имя (12.42, решение 7)",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Ad, Ad {}\n\t}\n}\n",
+        3,
+        "альтернатива 2 недостижима: альтернатива 1 подходит к любому значению — у Op нет варианта Ad, поэтому Ad там новое имя (12.42, решение 7)",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase x {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "else недостижим: ветвь в строке 3 подходит к любому значению — у Op нет варианта x, поэтому x там новое имя (12.42, решение 7)",
+    ),
+    // строка else — строка слова else
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add {}\n\t\tcase Sub {}\n\t\telse\n\t\t{}\n\t}\n}\n",
+        5,
+        "else недостижим: все значения разобраны ветвями выше (решение 7)",
+    ),
+
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase n {}\n\t\tcase 0 {}\n\t}\n}\n",
+        4,
+        "ветвь недостижима: ветвь в строке 3 подходит к любому значению (решение 7); удалите эту ветвь или поставьте её выше",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase 16 {}\n\t\tcase 0x10 {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num(_) {}\n\t\tcase Num(1) {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    (
+        "func f(t: (bool, i64)) {\n\tmatch t {\n\t\tcase (true, 1) {}\n\t\tcase (b, _) {}\n\t\tcase (true, 1) {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    (
+        "func f(c: char, b: bool) {\n\tmatch (c, b) {\n\t\tcase ('a', true) {}\n\t\tcase ('a', false) {}\n\t\tcase ('a', true) {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    (
+        "func f(d: Duo) {\n\tmatch d {\n\t\tcase Two(x: Add, y: _) {}\n\t\tcase Two(x: Add, y: Sub) {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    // к ветви, где у части типа нет значений, не подходит ни одно значение (решение 28)
+    (
+        "func f(h: Half) {\n\tmatch h {\n\t\tcase Full(_) {}\n\t\tcase Gone(_) {}\n\t}\n}\n",
+        4,
+        "к ветви не подходит ни одно значение: у типа Never значений нет (решение 28); ветвь не нужна",
+    ),
+    (
+        "func f(h: Half) {\n\tmatch h {\n\t\tcase Lost(x: 1, ..) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "к ветви не подходит ни одно значение: у типа Void значений нет (решение 28); ветвь не нужна",
+    ),
+    (
+        "func f(h: Half) {\n\tmatch h {\n\t\tcase Full(_), Gone(_) {}\n\t}\n}\n",
+        3,
+        "к альтернативе 2 не подходит ни одно значение: у типа Never значений нет (решение 28); альтернатива не нужна",
+    ),
+    (
+        "func f(h: Half) {\n\tmatch h {\n\t\tcase Full(_) {}\n\t\tcase Gone(_), Lost(..) {}\n\t}\n}\n",
+        4,
+        "к ветви не подходит ни одно значение: у типа Never значений нет (решение 28); ветвь не нужна",
+    ),
+    (
+        "func f(h: Half) {\n\tmatch h {\n\t\tcase Full(_) {}\n\t\tcase Full(1), Gone(_) {}\n\t}\n}\n",
+        4,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    (
+        "func f(h: Half) {\n\tmatch h {\n\t\tcase Full(1) {}\n\t\tcase Full(2) {}\n\t\tcase Full(1), Full(2), Gone(_) {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "ветвь недостижима: все её значения разобраны ветвями выше (решение 7)",
+    ),
+    (
+        "func f(v: Void) {\n\tmatch v {\n\t\tcase x {}\n\t}\n}\n",
+        3,
+        "к ветви не подходит ни одно значение: у типа Void значений нет (решение 28); ветвь не нужна",
+    ),
+    (
+        "func f(v: Void) {\n\tmatch v {\n\t\telse {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "к else не подходит ни одно значение: у типа Void значений нет (решение 28); else не нужен",
+    ),
+    (
+        "func f(x: Never) {\n\tmatch x {\n\t\tcase y {}\n\t}\n}\n",
+        3,
+        "к ветви не подходит ни одно значение: у типа Never значений нет (решение 28); ветвь не нужна",
+    ),
+    (
+        "func f(t: (bool, Never)) {\n\tmatch t {\n\t\tcase u {}\n\t}\n}\n",
+        3,
+        "к ветви не подходит ни одно значение: у типа Never значений нет (решение 28); ветвь не нужна",
+    ),
+    (
+        "func f(t: (bool, Never)) {\n\tmatch t {\n\t\tcase (true, n) {}\n\t}\n}\n",
+        3,
+        "к ветви не подходит ни одно значение: у типа Never значений нет (решение 28); ветвь не нужна",
+    ),
+    (
+        "func f(a: Array[(i64, Void), 2]) {\n\tmatch a {\n\t\tcase b {}\n\t}\n}\n",
+        3,
+        "к ветви не подходит ни одно значение: у типа Void значений нет (решение 28); ветвь не нужна",
+    ),
+    (
+        "func f(s: Nothing) {\n\tmatch s {\n\t\tcase t {}\n\t}\n}\n",
+        3,
+        "к ветви не подходит ни одно значение: у типа Nothing значений нет (решение 28); ветвь не нужна",
+    ),
+    // образцы вариантов (12.42, 13.11, решение 3)
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "у варианта E.Num есть значение: case Num(…)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase E.Num {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "у варианта E.Num есть значение: case E.Num(…)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Empty() {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "у варианта E.Empty нет значения: case Empty",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num(a, b) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "вариант E.Num несёт одно значение без имени: case Num(образец)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num(..) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "вариант E.Num несёт одно значение без имени: case Num(образец)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num(x: 1) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "вариант E.Num несёт одно значение без имени: case Num(образец)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Named(x, b) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "в образце варианта E.Named на этом месте поле a: имя без двоеточия совпадает с именем поля (13.11)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Named(b: _, a: _) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "в образце варианта E.Named на этом месте поле a, а не b: поля идут в порядке объявления (13.11)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Named(c: _, ..) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "у варианта E.Named нет поля c",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Named(1, ..) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "в образце варианта E.Named поле a пишется именем a или a: образец (13.11)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Named(a, b, _) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "у варианта E.Named полей: 2, а в образце больше",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Named(a,\n\t\t\tb,\n\t\t\tc: _) {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "у варианта E.Named полей: 2, а в образце больше",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Named(a) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "в образце варианта E.Named нет поля b: остальные поля пропускает .. (12.42)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Named(.., b) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        ".. стоит последним (12.42)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Named(..,\n\t\t\tb) {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        ".. стоит последним (12.42)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Named(a, ..,\n\t\t\t..) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        ".. стоит последним (12.42)",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase E.Num(_) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "тип не совпадает: ожидался Op, здесь E",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Op.Mul {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "у перечисления Op нет варианта Mul",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Mul(x) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "у перечисления Op нет варианта Mul",
+    ),
+    (
+        "func f(p: P) {\n\tmatch p {\n\t\tcase P(x, y) {}\n\t}\n}\n",
+        3,
+        "не входит в шаг 2: образец записи (решение 13)",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase Num(n) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "образец Num(…) — вариант, а значение типа i64",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase Some(n) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "не входит в шаг 2: Option",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase a.b.c {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "в образце вариант пишется V или E.V",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase a.b.c(x) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "в образце вариант пишется V(…) или E.V(…)",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase Ok(n) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "не входит в шаг 2: Result",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase P.x {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "P — запись, а не перечисление",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase i64.x {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "i64 — не перечисление пакета",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Zz.x {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "нет перечисления Zz",
+    ),
+    // образцы-литералы (решение 10з, 12.56)
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase 1.5 {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "дробное число 1.5 в образце: у дробных нет полного равенства (решение 10з)",
+    ),
+    (
+        "func f(x: f64) {\n\tmatch x {\n\t\tcase 1 {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "образец-число на месте дробного f64: у дробных нет полного равенства (решение 10з)",
+    ),
+    (
+        "func f(b: u8) {\n\tmatch b {\n\t\tcase 300 {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "число 300 не помещается в u8 (12.56)",
+    ),
+    (
+        "func f(b: u8) {\n\tmatch b {\n\t\tcase -1 {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "у беззнакового u8 нет смены знака (9.18)",
+    ),
+    (
+        "func f(c: bool) {\n\tmatch c {\n\t\tcase 1 {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "тип не совпадает: ожидался bool, здесь целое число",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase 'a' {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "тип не совпадает: ожидался i64, здесь char",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase true {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "тип не совпадает: ожидался i64, здесь bool",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase \"a\" {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "не входит в шаг 2: строки",
+    ),
+    (
+        "func f(c: char) {\n\tmatch c {\n\t\tcase '\\u{D800}' {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "\\u{D800} — не скалярное значение Unicode",
+    ),
+    // кортежи (13.10)
+    (
+        "func f(t: (bool, bool)) {\n\tmatch t {\n\t\tcase (a, b, c) {}\n\t}\n}\n",
+        3,
+        "образец из 3 частей, а значение типа (bool, bool)",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase (a, b) {}\n\t}\n}\n",
+        3,
+        "образец из 2 частей, а значение типа i64",
+    ),
+    // имена образцов (12.93, 12.43)
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase x {}\n\t}\n}\n",
+        3,
+        "имя x уже объявлено в строке 1: затенения нет (12.93)",
+    ),
+    (
+        "func f(t: (i64, i64)) {\n\tmatch t {\n\t\tcase (a, a) {}\n\t}\n}\n",
+        3,
+        "имя a уже объявлено в строке 3: затенения нет (12.93)",
+    ),
+    (
+        "func f(t: (bool, bool)) {\n\tmatch t {\n\t\tcase (a, true), (false, b) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "имя b связывает альтернатива 2, а первая — нет: альтернативы связывают одинаковые имена (12.43)",
+    ),
+    (
+        "func f(t: (bool, bool)) {\n\tmatch t {\n\t\tcase (a, true), (false, _) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "альтернатива 2 не связывает имя a: альтернативы связывают одинаковые имена (12.43)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num(n), Named(_, b: n) {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "имя n в альтернативе 2 типа f64, а в первой — i64: альтернативы связывают одинаковые типы (12.43)",
+    ),
+    (
+        "func f(t: (i64, i64)) {\n\tmatch t {\n\t\tcase (a, b), (a, a) {}\n\t}\n}\n",
+        3,
+        "имя a в альтернативе 2 связано дважды (12.93)",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase 0 {}\n\t\tcase n if n > 0 {}\n\t\telse {\n\t\t\tlet y = n\n\t\t}\n\t}\n}\n",
+        6,
+        "нет имени n",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase n {}\n\t}\n\tlet y = n\n}\n",
+        5,
+        "нет имени n",
+    ),
+    // условие ветви (12.43, решение 14)
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase n if 1 {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "тип не совпадает: ожидался bool, здесь целое число",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase n if forever() {}\n\t\telse {}\n\t}\n}\n",
+        3,
+        "выражение типа Never значения не даёт, и дальше выполнение не пойдёт (решения 7 и 14): его ставят отдельной инструкцией или последним в блоке",
+    ),
+    // имена из образца не меняются, кроме имён из match mut (решение 16)
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase n {\n\t\t\tn = 1\n\t\t}\n\t}\n}\n",
+        4,
+        "n — имя из образца: оно не меняется, кроме имён из match mut (решение 16)",
+    ),
+    (
+        "func f(take q: Q) {\n\tmatch take q {\n\t\tcase r {\n\t\t\tr = Q(z: 1)\n\t\t}\n\t}\n}\n",
+        4,
+        "r — имя из образца: оно не меняется, кроме имён из match mut (решение 16)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase Num(n) {\n\t\t\tbump(mut n)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "n — имя из образца: оно не меняется, кроме имён из match mut (решение 16)",
+    ),
+    // match mut — только у места, которое меняется (раздел 5)
+    (
+        "func f() {\n\tmatch mut two(1, 2) {\n\t\tcase n {}\n\t}\n}\n",
+        2,
+        "match mut — только у места: переменной, параметра, их поля или элемента",
+    ),
+    (
+        "func f() {\n\tlet x = 1\n\tmatch mut x {\n\t\tcase n {}\n\t}\n}\n",
+        3,
+        "x объявлено через let: его значение не меняется (12.12)",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch mut x {\n\t\tcase n {}\n\t}\n}\n",
+        2,
+        "x — параметр для чтения: его не меняют (12.58)",
+    ),
+    (
+        "func f(x: i64) {\n\tmatch x {\n\t\tcase n {\n\t\t\tmatch mut n {\n\t\t\t\tcase m {}\n\t\t\t}\n\t\t}\n\t}\n}\n",
+        4,
+        "n — имя из образца: оно не меняется, кроме имён из match mut (решение 16)",
+    ),
+    // значение match (решения 4, 7, 14, 24)
+    (
+        "func f() {\n\tmatch forever() {\n\t\tcase _ {}\n\t}\n}\n",
+        2,
+        "выражение типа Never значения не даёт, и дальше выполнение не пойдёт (решения 7 и 14): его ставят отдельной инструкцией или последним в блоке",
+    ),
+    (
+        "func f(o: Op) {\n\tlet v: bool = match o {\n\t\tcase Add { 1 }\n\t\telse { 2 }\n\t}\n}\n",
+        3,
+        "тип не совпадает: ожидался bool, здесь целое число",
+    ),
+    (
+        "func f(o: Op) {\n\tlet v = match o {\n\t\tcase Add { 1 }\n\t\telse { true }\n\t}\n}\n",
+        3,
+        "тип не совпадает: ожидался bool, здесь целое число",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add {\n\t\t\t1\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "значение типа i64 не используется: выбросить можно только результат вызова функции (решение 4)",
+    ),
+    (
+        "func f(o: Op) -> i64 {\n\tmatch o {\n\t\tcase Add { 1 }\n\t\telse {\n\t\t\tlet y = 2\n\t\t}\n\t}\n}\n",
+        5,
+        "блок должен дать значение типа i64, а его последняя инструкция значения не даёт",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add {\n\t\t\treturn\n\t\t}\n\t\telse {\n\t\t\treturn\n\t\t}\n\t}\n\tlet x = 1\n}\n",
+        10,
+        "сюда выполнение не дойдёт: инструкция в строке 2 всегда уходит (решение 7)",
+    ),
+    (
+        "func f(v: Void) {\n\tmatch v {\n\t}\n\tlet x = 1\n}\n",
+        4,
+        "сюда выполнение не дойдёт: инструкция в строке 2 всегда уходит (решение 7)",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add {\n\t\t\tlet z = zz\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "нет имени zz",
+    ),
+    // недостижимое и полнота проверяются раньше тел ветвей (раздел 7)
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add {\n\t\t\tlet z = zz\n\t\t}\n\t\tcase Add {}\n\t\tcase Sub {}\n\t}\n}\n",
+        6,
+        "ветвь недостижима: все её значения разобраны ветвью в строке 3 (решение 7)",
+    ),
+    (
+        "func f(o: Op) {\n\tmatch o {\n\t\tcase Add {\n\t\t\tlet z = zz\n\t\t}\n\t}\n}\n",
+        2,
+        "match разбирает не все значения: например, Op.Sub не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    ),
+    // временное значение типа Never уходит раньше match: match по нему — недостижимый код
+    (
+        "func f() {\n\tmatch nothing() {\n\t}\n}\n",
+        2,
+        "выражение типа Void значения не даёт, и дальше выполнение не пойдёт (решения 7 и 14): его ставят отдельной инструкцией или последним в блоке",
+    ),
+];
+
+#[test]
+fn wrong_matches_are_rejected() {
+    let prelude_lines = PRELUDE.lines().count() as u32;
+    for (body, line, message) in MATCH_REJECTED {
+        let text = format!("{}{}", PRELUDE, body);
+        let message = shift_lines(message, prelude_lines);
+        rejected(&text, prelude_lines + line, &message);
+    }
+}
+
+// ───────── match: правильные программы ─────────
+
+use nulixc::core::{LocalKind, Match, PatternKind};
+
+const MATCH: &str = include_str!("check/match.nx");
+
+/// `match` в конце тела функции: значение тела или, у тела типа `()`, последняя инструкция.
+fn body_match<'p>(p: &'p Program, name: &str) -> &'p Match {
+    let block = &func(p, name).body.block;
+    let last = match block.value.as_deref() {
+        Some(e) => Some(e),
+        None => match block.stmts.last().map(|st| &st.kind) {
+            Some(StmtKind::Expr(e)) => Some(e),
+            _ => None,
+        },
+    };
+    match last.map(|e| &e.kind) {
+        Some(ExprKind::Match(m)) => m,
+        _ => panic!("тело {} кончается не match", name),
+    }
+}
+
+#[test]
+fn match_program_is_accepted() {
+    let p = accepted(MATCH);
+    let (op, expr, wrap) = (type_id(&p, "Op"), type_id(&p, "Expr"), type_id(&p, "Wrap"));
+    // имена из образцов — по ветвям, в порядке проверки
+    assert_eq!(
+        local_types(&p, "eval"),
+        pairs(&[
+            ("e", "Expr"),
+            ("n", "i64"),
+            ("n", "i64"),
+            ("n", "i64"),
+            ("op", "Op"),
+            ("left", "i64"),
+            ("right", "i64"),
+        ])
+    );
+    // режим match — у каждого имени из образца (12.62, решение 16)
+    let kind = |f: &str, k: usize| func(&p, f).body.locals[k].kind;
+    assert_eq!(kind("eval", 1), LocalKind::Bound(Mode::Read));
+    assert_eq!(kind("bump_num", 1), LocalKind::Bound(Mode::Mut));
+    assert_eq!(kind("unwrap_num", 1), LocalKind::Bound(Mode::Take));
+    assert_eq!(body_match(&p, "bump_num").mode, Mode::Mut);
+    // альтернативы связывают одно имя одним номером (12.43); условие — у ветви
+    let eval = body_match(&p, "eval");
+    let alternatives: Vec<&PatternKind> = eval.cases[0]
+        .patterns
+        .iter()
+        .map(|pat| match &pat.kind {
+            PatternKind::Variant(_, _, items) => &items[0].kind,
+            other => other,
+        })
+        .collect();
+    assert_eq!(alternatives, [&PatternKind::Bind(1), &PatternKind::Bind(1)]);
+    assert!(eval.cases[0].guard.is_some() && eval.cases[1].guard.is_none());
+    // поля варианта — по объявлению, пропущенные — `_`
+    let at = line_of(MATCH, "case Bin(op: Div");
+    assert_eq!(
+        eval.cases[3].patterns[0].kind,
+        PatternKind::Variant(
+            expr,
+            2,
+            vec![
+                pattern(PatternKind::Variant(op, 3, Vec::new()), Type::Named(op), at),
+                pattern(PatternKind::Skip, I64, at),
+                pattern(PatternKind::Int(0), I64, at),
+            ]
+        )
+    );
+    // `..` пропускает остальные поля
+    match &body_match(&p, "pair_kind").cases[2].patterns[0].kind {
+        PatternKind::Variant(id, 1, items) => {
+            assert_eq!(*id, wrap);
+            let kinds: Vec<&PatternKind> = items.iter().map(|i| &i.kind).collect();
+            assert_eq!(
+                kinds,
+                [&PatternKind::Variant(op, 0, Vec::new()), &PatternKind::Skip]
+            );
+        }
+        other => panic!("ждали Wrap.Pair, а здесь {:?}", other),
+    }
+    // числа и символы — значениями
+    let sign = body_match(&p, "sign");
+    let ints: Vec<&PatternKind> = sign.cases[1].patterns.iter().map(|x| &x.kind).collect();
+    assert_eq!(ints, [&PatternKind::Int(-1), &PatternKind::Int(-2)]);
+    assert!(sign.otherwise.is_some());
+    assert_eq!(
+        body_match(&p, "digit").cases[2].patterns[0].kind,
+        PatternKind::Char('A')
+    );
+    // тип match без своего типа задаёт место (решение 24)
+    assert_eq!(
+        local_types(&p, "weight"),
+        pairs(&[("op", "Op"), ("w", "u16"), ("m", "u16")])
+    );
+    // match без ветвей по перечислению без вариантов уходит (9.36)
+    let absurd = body_match(&p, "absurd");
+    assert!(absurd.cases.is_empty() && absurd.otherwise.is_none());
+    assert_eq!(func(&p, "absurd").body.block.ty, Type::Never);
+    // match инструкцией: тип ветвей — ()
+    let touch = &func(&p, "touch").body.block;
+    assert!(touch.value.is_none());
+    assert_eq!(p.tests.len(), 1);
+}
+
+fn pattern(kind: PatternKind, ty: Type, line: u32) -> nulixc::core::Pattern {
+    nulixc::core::Pattern { kind, ty, line }
+}
+
+#[test]
+fn guards_and_alternatives_are_accepted() {
+    // альтернативы с условием друг друга не закрывают: при ложном условии проверка идёт к
+    // следующей альтернативе (решение 27)
+    accepted("func f(t: (i64, i64)) -> i64 {\n\tmatch t {\n\t\tcase (x, _), (_, x) if x > 0 { x }\n\t\telse { 0 }\n\t}\n}\n");
+    // ветвь с условием не закрывает ту же ветвь без условия
+    accepted("func f(x: i64) -> i64 {\n\tmatch x {\n\t\tcase n if n > 0 { n }\n\t\tcase n { -n }\n\t}\n}\n");
+    // bool без else; одинаковые имена в альтернативах
+    accepted("func f(t: (bool, i64)) -> i64 {\n\tmatch t {\n\t\tcase (true, n), (false, n) { n }\n\t}\n}\n");
+    // имя из match mut меняется и отдаётся как mut; место — поле
+    accepted(&format!(
+        "{}func g(mut p: P) {{\n\tmatch mut p.x {{\n\t\tcase n {{\n\t\t\tbump(mut n)\n\t\t\tn += 1\n\t\t}}\n\t}}\n}}\n",
+        PRELUDE
+    ));
+    // match в скобках, стоящий инструкцией, — тоже инструкция (решение 4)
+    accepted(&format!(
+        "{}func g(o: Op) {{\n\t(match o {{\n\t\tcase Add {{ two(1, 2) }}\n\t\telse {{ two(3, 4) }}\n\t}})\n}}\n",
+        PRELUDE
+    ));
+}
+
+#[test]
+fn integer_matches_are_exact() {
+    // у u8 256 значений: перечислены все — match полон без else
+    let mut all = String::from("func f(x: u8) -> u8 {\n\tmatch x {\n");
+    for v in 0..=255 {
+        all.push_str(&format!("\t\tcase {} {{ {} }}\n", v, v));
+    }
+    all.push_str("\t}\n}\n");
+    accepted(&all);
+    // без одного — пример называет его
+    let without = all.replace("\t\tcase 77 { 77 }\n", "");
+    rejected(
+        &without,
+        2,
+        "match разбирает не все значения: например, 77 не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    );
+    // у символов пример — сначала буквы и цифры, затем по порядку кодов; невидимый знак —
+    // `\u{…}`
+    let mut chars = String::from("func f(c: char) {\n\tmatch c {\n");
+    for c in ('a'..='z').chain('0'..='9').chain('A'..='Z') {
+        chars.push_str(&format!("\t\tcase '{}' {{}}\n", c));
+    }
+    chars.push_str("\t}\n}\n");
+    rejected(
+        &chars,
+        2,
+        "match разбирает не все значения: например, '\\u{0}' не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    );
+    // у i8 пример ищется и среди отрицательных
+    let mut signed = String::from("func f(x: i8) {\n\tmatch x {\n");
+    for v in 0..=127 {
+        signed.push_str(&format!("\t\tcase {} {{}}\n", v));
+    }
+    signed.push_str("\t}\n}\n");
+    rejected(
+        &signed,
+        2,
+        "match разбирает не все значения: например, -1 не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    );
+}
+
+#[test]
+fn wide_matches_run_on_a_small_stack() {
+    // поиск полезности идёт без рекурсии: широкий кортеж и много ветвей проходят на стеке 1 МБ
+    let n = 50_000;
+    let ty = vec!["bool"; n].join(", ");
+    let first = vec!["true"; n].join(", ");
+    let text = format!(
+        "func f(t: ({})) -> i64 {{\n\tmatch t {{\n\t\tcase ({}) {{ 1 }}\n\t\telse {{ 0 }}\n\t}}\n}}\n",
+        ty, first
+    );
+    if let Err((line, message)) = run_on_small_stack(text) {
+        panic!("отвергнуто, строка {}: {}", line, message);
+    }
+    // без else пример — кортеж, где первое значение false, а остальные любые
+    let text = format!(
+        "func f(t: ({})) {{\n\tmatch t {{\n\t\tcase ({}) {{}}\n\t}}\n}}\n",
+        ty, first
+    );
+    match run_on_small_stack(text) {
+        Err((2, message)) => assert!(
+            message.starts_with("match разбирает не все значения: например, (false, _, _"),
+            "{}",
+            &message[..message.len().min(200)]
+        ),
+        Err((line, message)) => panic!("строка {}: {}", line, &message[..message.len().min(200)]),
+        Ok(_) => panic!("принято"),
+    }
+    let mut many = String::from("func f(x: i64) -> i64 {\n\tmatch x {\n");
+    for v in 0..2_000 {
+        many.push_str(&format!("\t\tcase {} {{ {} }}\n", v, v));
+    }
+    many.push_str("\t\telse { -1 }\n\t}\n}\n");
+    if let Err((line, message)) = run_on_small_stack(many) {
+        panic!("отвергнуто, строка {}: {}", line, message);
+    }
+}
+
+#[test]
+fn values_that_cannot_exist_are_not_counted() {
+    // у варианта с частью типа без значений значений нет: его не пишут (решение 28)
+    let decls = "enum Void {}\nenum M {\n\tA\n\tB(Never)\n\tC(x: i64, v: Void)\n}\nstruct S {\n\tn: Never\n}\nstruct Z {\n\ta: Array[Never, 0]\n}\nstruct S2 {\n\ta: i64\n\tn: Never\n}\nenum Q2 {\n\tV(x: i64, v: Void)\n}\n";
+    accepted(&format!(
+        "{}func f(m: M) -> i64 {{\n\tmatch m {{\n\t\tcase A {{ 1 }}\n\t}}\n}}\n",
+        decls
+    ));
+    // по значению типа без значений match пишется без ветвей, и его тип — Never; значения нет,
+    // если его нет хотя бы у одной части записи, варианта или кортежа
+    let p = accepted(&format!(
+        "{}func f(s: S) -> i64 {{\n\tmatch s {{\n\t}}\n}}\nfunc g(s: S2) -> i64 {{\n\tmatch s {{\n\t}}\n}}\nfunc h(q: Q2) -> i64 {{\n\tmatch q {{\n\t}}\n}}\nfunc k(t: (bool, Q2)) -> i64 {{\n\tmatch t {{\n\t}}\n}}\nfunc a(t: Array[Void, 3]) -> i64 {{\n\tmatch t {{\n\t}}\n}}\n",
+        decls
+    ));
+    for name in ["f", "g", "h", "k", "a"] {
+        assert_eq!(func(&p, name).body.block.ty, Type::Never, "{}", name);
+    }
+    // у пустого массива значение есть всегда — сам пустой массив
+    let inhabited: Vec<bool> = p.types.iter().map(|t| t.inhabited).collect();
+    assert_eq!(inhabited, [false, true, false, true, false, false]);
+    rejected(
+        &format!(
+            "{}func f(z: Z) {{\n\tmatch z {{\n\t}}\n}}\n",
+            decls
+        ),
+        decls.lines().count() as u32 + 2,
+        "match без ветвей бывает только по значению типа без значений, а у Z значения есть (решение 28); добавьте ветвь или else",
+    );
+    // пример неразобранного значения — из тех, что бывают
+    let first_empty = "enum K {\n\tX(Never)\n\tY\n\tZ\n}\n";
+    rejected(
+        &format!(
+            "{}func f(k: K) {{\n\tmatch k {{\n\t\tcase Z {{}}\n\t}}\n}}\n",
+            first_empty
+        ),
+        7,
+        "match разбирает не все значения: например, K.Y не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    );
+    rejected(
+        &format!(
+            "{}func f(t: (K, bool)) {{\n\tmatch t {{\n\t\tcase (Z, _) {{}}\n\t\tcase (_, true) {{}}\n\t}}\n}}\n",
+            first_empty
+        ),
+        7,
+        "match разбирает не все значения: например, (K.Y, false) не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+    );
+}
+
+#[test]
+fn places_of_type_never_are_matched_without_branches() {
+    // место типа Never — параметр, его поле, элемент — сравнивают в match без ветвей при любом
+    // режиме: ветвей у такого match нет, и недостижимого кода тоже (решение 28)
+    let p = accepted(&format!(
+        "{}func f(x: Never) -> i64 {{\n\tmatch x {{\n\t}}\n}}\nfunc g(take x: Never) -> i64 {{\n\tmatch take x {{\n\t}}\n}}\nfunc h(mut x: Never) -> i64 {{\n\tmatch mut x {{\n\t}}\n}}\nfunc k(s: Nothing) -> i64 {{\n\tmatch s.n {{\n\t}}\n}}\nfunc a(t: Array[Never, 2]) -> i64 {{\n\tmatch t[1] {{\n\t}}\n}}\n",
+        PRELUDE
+    ));
+    for name in ["f", "g", "h", "k", "a"] {
+        assert_eq!(func(&p, name).body.block.ty, Type::Never, "{}", name);
+    }
+    // после такого match выполнение не идёт (решение 7)
+    rejected(
+        &format!(
+            "{}func f(x: Never) {{\n\tmatch x {{\n\t}}\n\tlet y = 1\n}}\n",
+            PRELUDE
+        ),
+        PRELUDE.lines().count() as u32 + 4,
+        &format!(
+            "сюда выполнение не дойдёт: инструкция в строке {} всегда уходит (решение 7)",
+            PRELUDE.lines().count() + 2
+        ),
+    );
+}
+
+#[test]
+fn match_records_the_mode_it_compares_with() {
+    // место без слова — чтение, временное значение образец забирает сам (12.62)
+    let p = accepted(&format!(
+        "{}func f(x: i64) -> i64 {{\n\tmatch x {{\n\t\tcase n {{ n }}\n\t}}\n}}\nfunc g() -> i64 {{\n\tmatch two(1, 2) {{\n\t\tcase n {{ n }}\n\t}}\n}}\nfunc h(q: Q) -> i64 {{\n\tmatch (q.z) {{\n\t\tcase n {{ n }}\n\t}}\n}}\n",
+        PRELUDE
+    ));
+    assert_eq!(body_match(&p, "f").mode, Mode::Read);
+    assert_eq!(
+        func(&p, "f").body.locals[1].kind,
+        LocalKind::Bound(Mode::Read)
+    );
+    assert_eq!(body_match(&p, "g").mode, Mode::Take);
+    assert_eq!(
+        func(&p, "g").body.locals[0].kind,
+        LocalKind::Bound(Mode::Take)
+    );
+    assert_eq!(body_match(&p, "h").mode, Mode::Read);
+}
+
+#[test]
+fn examples_are_written_as_literals() {
+    // символы перед примером: сначала буквы и цифры, затем по порядку кодов до нужного
+    let order: Vec<char> = ('a'..='z')
+        .chain('0'..='9')
+        .chain('A'..='Z')
+        .chain((0..=0x7F).filter_map(char::from_u32))
+        .collect();
+    for (target, text) in [
+        ('\'', "'\\''"),
+        ('\\', "'\\\\'"),
+        (' ', "' '"),
+        ('\u{7F}', "'\\u{7F}'"),
+    ] {
+        let mut src = String::from("func f(c: char) {\n\tmatch c {\n");
+        let mut seen = std::collections::HashSet::new();
+        for &c in &order {
+            if c == target {
+                break;
+            }
+            if !seen.insert(c) {
+                continue;
+            }
+            let lit = match c {
+                c if c.is_ascii_graphic() && c != '\'' && c != '\\' => format!("'{}'", c),
+                c => format!("'\\u{{{:X}}}'", c as u32),
+            };
+            src.push_str(&format!("\t\tcase {} {{}}\n", lit));
+        }
+        src.push_str("\t}\n}\n");
+        rejected(
+            &src,
+            2,
+            &format!(
+                "match разбирает не все значения: например, {} не подходит ни к одной ветви (9.35); добавьте ветвь или else",
+                text
+            ),
+        );
+    }
+}
+
+#[test]
+fn wide_matches_are_checked_in_near_linear_time() {
+    // ветви раскладываются по конструкторам за один проход: прежняя проверка шла
+    // по ветвям выше для каждой ветви, и на таких match время росло квадратично
+    let n = 20_000;
+    let mut enum_all = String::from("enum Big {\n");
+    for k in 0..n {
+        enum_all.push_str(&format!("\tV{}\n", k));
+    }
+    enum_all.push_str("}\nfunc f(b: Big) -> i64 {\n\tmatch b {\n");
+    for k in 0..n {
+        enum_all.push_str(&format!("\t\tcase V{} {{ {} }}\n", k, k));
+    }
+    enum_all.push_str("\t}\n}\n");
+    let mut pairs = String::from("func f(x: (i64, bool)) -> i64 {\n\tmatch x {\n");
+    for k in 0..n {
+        pairs.push_str(&format!("\t\tcase ({}, _) {{ {} }}\n", k, k));
+    }
+    pairs.push_str("\t\telse { -1 }\n\t}\n}\n");
+    let mut full = String::from("func f(x: u16) -> i64 {\n\tmatch x {\n");
+    for k in 0..=u16::MAX {
+        full.push_str(&format!("\t\tcase {} {{ 1 }}\n", k));
+    }
+    full.push_str("\t}\n}\n");
+    // с одной строкой без условия, которая разбирает всё, остальное не перебирается: 64 ветви
+    // по кортежу из 32 bool, в каждой задано до трёх мест
+    let mut tuple = String::from("func f(t: (");
+    tuple.push_str(&vec!["bool"; 32].join(", "));
+    tuple.push_str(")) -> i64 {\n\tmatch t {\n");
+    let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    for _ in 0..64 {
+        let mut row = vec!["_"; 32];
+        for _ in 0..3 {
+            let c = (next() % 32) as usize;
+            row[c] = if next() % 2 == 0 { "true" } else { "false" };
+        }
+        tuple.push_str(&format!("\t\tcase ({}) {{ 1 }}\n", row.join(", ")));
+    }
+    tuple.push_str("\t\telse { 0 }\n\t}\n}\n");
+    for text in [enum_all, pairs, full, tuple] {
+        let start = std::time::Instant::now();
+        accepted(&text);
+        // с большим запасом: на этих match квадратичная проверка шла минутами
+        assert!(start.elapsed().as_secs() < 30, "{:?}", start.elapsed());
+    }
+}
+
+#[test]
+fn match_branches_without_values_give_no_type() {
+    // ветвь, которая уходит, тип не задаёт: литерал в другой ветви — i64 (решение 24)
+    let p = accepted(&format!(
+        "{}func g(o: Op) -> i64 {{\n\tlet v = match o {{\n\t\tcase Add {{ forever() }}\n\t\telse {{ 1 }}\n\t}}\n\tv\n}}\n",
+        PRELUDE
+    ));
+    assert_eq!(local_types(&p, "g"), pairs(&[("o", "Op"), ("v", "i64")]));
 }

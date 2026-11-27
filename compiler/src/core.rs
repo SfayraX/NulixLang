@@ -1,9 +1,9 @@
 //! Проверенное дерево явного ядра — то, что проверка исходника (`check.rs`) отдаёт переводу в IR.
 //!
 //! Правила — `spec/core-check.md`. Всё, что лежит здесь, уже проверено: имена разрешены, у
-//! каждого выражения записан тип, простые типы отмечены. В телах пока нет `match`, а копии и
-//! перемещения не размечены: они появятся вместе со своей проверкой (`spec/core-check.md`,
-//! раздел 9, шаги 3 и 4).
+//! каждого выражения записан тип, простые типы отмечены, `match` полон и без недостижимых
+//! ветвей. Копии и перемещения пока не размечены: они появятся вместе со своей проверкой
+//! (`spec/core-check.md`, раздел 9, шаг 4).
 
 use crate::ir::{Mode, Scalar};
 
@@ -49,6 +49,9 @@ pub struct TypeDecl {
     pub name: String,
     /// Тип простой: для него объявлено `impl Copy for T {}` (12.27).
     pub copy: bool,
+    /// У типа есть значения (9.36; `spec/core-check.md`, решение 28): у записи — если они есть
+    /// у всех полей, у перечисления — если есть вариант, у всех частей которого они есть.
+    pub inhabited: bool,
     pub kind: TypeKind,
     pub line: u32,
 }
@@ -120,7 +123,7 @@ pub struct Body {
     pub block: Block,
 }
 
-/// Локальное имя: параметр или переменная.
+/// Локальное имя: параметр, переменная или имя из образца `match`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Local {
     pub name: String,
@@ -135,6 +138,10 @@ pub enum LocalKind {
     Let,
     Var,
     Param(Mode),
+    /// Имя из образца `match`, по режиму, которым `match` сравнивает значение (`Match::mode`).
+    /// Меняются только имена из `match mut` (решение 16); копия это, представление или
+    /// забранная часть — раздел 5.
+    Bound(Mode),
 }
 
 /// Блок: инструкции и значение. Значение — последнее выражение блока; его нет у блока типа
@@ -238,6 +245,56 @@ pub enum ExprKind {
     Array(Vec<Expr>),
     /// `if … else if … else …`: ветви с условиями по порядку и блок `else`.
     If(Vec<(Expr, Block)>, Option<Block>),
+    Match(Box<Match>),
+}
+
+/// `match` (12.41, `spec/core-check.md`, раздел 6). Он полон, и недостижимых ветвей в нём нет:
+/// к каждой ветви подходит хотя бы одно значение, а `else`, если он есть, стоит последним. Без
+/// ветвей бывает только `match` по значению типа без значений, и его тип — `Never` (решение 28).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Match {
+    /// Сравниваемое значение; у `match mut` — место.
+    pub value: Expr,
+    /// Режим, которым сравнивается значение (12.62): `match mut` — `Mut`; `match take` и
+    /// временное значение без слова — `Take`, его образец забирает сам; место без слова — `Read`.
+    pub mode: Mode,
+    pub cases: Vec<Case>,
+    pub otherwise: Option<Block>,
+}
+
+/// Ветвь `case`: альтернативы, условие и тело. Альтернативы связывают одни и те же имена одних
+/// и тех же типов (12.43), поэтому у имени во всех альтернативах один номер. При ложном условии
+/// проверка идёт к следующей альтернативе, затем к следующей ветви (решение 27).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Case {
+    pub patterns: Vec<Pattern>,
+    pub guard: Option<Expr>,
+    pub body: Block,
+    pub line: u32,
+}
+
+/// Образец `match` и тип значения, к которому он прикладывается.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pattern {
+    pub kind: PatternKind,
+    pub ty: Type,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PatternKind {
+    /// `_`: подходит любое значение.
+    Skip,
+    /// Имя: подходит любое значение, имя связывается с ним.
+    Bind(LocalId),
+    Int(i128),
+    Char(char),
+    Bool(bool),
+    /// Вариант: перечисление, номер варианта и образцы его значения. У варианта без значения
+    /// образцов нет, у безымянного значения — один, у именованных полей — по одному на поле в
+    /// порядке объявления; пропущенные `_` и `..` поля — `Skip`.
+    Variant(TypeId, usize, Vec<Pattern>),
+    Tuple(Vec<Pattern>),
 }
 
 /// Значение, которое несёт создаваемый вариант.
@@ -310,7 +367,29 @@ impl Program {
         }
     }
 
-    /// Тип без значений: `Never` и любое перечисление без вариантов (9.36).
+    /// У типа есть значения. Их нет у `Never`, у записи или перечисления без значений
+    /// (`TypeDecl::inhabited`), у кортежа с частью без значений и у непустого массива из них.
+    pub fn has_values(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Scalar(_) | Type::Unit => true,
+            Type::Never => false,
+            Type::Tuple(items) => items.iter().all(|item| self.has_values(item)),
+            Type::Array(item, n) => *n == 0 || self.has_values(item),
+            Type::Named(id) => self.types[*id].inhabited,
+        }
+    }
+
+    /// У варианта с таким значением есть значения: они есть у всех его частей (решение 28).
+    pub fn payload_has_values(&self, payload: &Payload) -> bool {
+        match payload {
+            Payload::None => true,
+            Payload::One(ty) => self.has_values(ty),
+            Payload::Fields(fields) => fields.iter().all(|f| self.has_values(&f.ty)),
+        }
+    }
+
+    /// Перечисление без вариантов — `Never` или своё (9.36): вызов функции с таким результатом
+    /// уходит (решение 10в). Значений нет и у других типов — см. `has_values`.
     pub fn is_never(&self, ty: &Type) -> bool {
         match ty {
             Type::Never => true,
