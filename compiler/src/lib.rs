@@ -14,6 +14,7 @@ pub mod interp;
 pub mod ir;
 pub mod ir_text;
 pub mod lexer;
+pub mod moves;
 pub mod parser;
 pub mod patterns;
 pub mod stack;

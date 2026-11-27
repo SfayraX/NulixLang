@@ -1,0 +1,428 @@
+// Правильная программа шага 2 с владением (spec/core-check.md, раздел 5): проверка её принимает
+// и ставит у использований мест копии, перемещения и заимствования. В части 5 её проведут через
+// перевод в IR, проверщик и интерпретатор, поэтому утверждения в тестах верны.
+@file(develop)
+
+struct Token {
+	weight: i64
+}
+
+struct Pair {
+	left: Token
+	right: Token
+	count: i64
+}
+
+struct Nest {
+	pair: Pair
+	last: Token
+}
+
+enum Slot {
+	Full(Token)
+	Named(token: Token, rank: i64)
+	Empty
+}
+
+enum Phase {
+	Idle
+	Run(i64)
+}
+
+enum Dir {
+	Left
+	Right
+}
+
+impl Copy for Dir {}
+
+func token(w: i64) -> Token {
+	Token(weight: w)
+}
+
+func pair(a: i64, b: i64) -> Pair {
+	Pair(left: token(a), right: token(b), count: 0)
+}
+
+func weight(t: Token) -> i64 {
+	t.weight
+}
+
+func total(p: Pair) -> i64 {
+	weight(p.left) + weight(p.right) + p.count
+}
+
+func consume(take t: Token) -> i64 {
+	t.weight
+}
+
+func consume_pair(take p: Pair) -> i64 {
+	total(p)
+}
+
+func grow(mut t: Token) {
+	t.weight += 1
+}
+
+func grows(mut t: Token) -> bool {
+	t.weight += 1
+	true
+}
+
+func swap_weights(mut a: Token, mut b: Token) {
+	let w = a.weight
+	a.weight = b.weight
+	b.weight = w
+}
+
+func add_to(mut a: i64, b: i64) {
+	a += b
+}
+
+func put(mut t: Token, w: i64) {
+	t.weight = w
+}
+
+func is_heavy(t: Token) -> bool {
+	t.weight > 10
+}
+
+func is_full(s: Slot) -> bool {
+	match s {
+		case Full(_) { true }
+		else { false }
+	}
+}
+
+func two_tokens() -> Array[Token, 2] {
+	[token(1), token(2)]
+}
+
+func make_slot(w: i64) -> Slot {
+	Slot.Full(token(w))
+}
+
+func stop() -> Never {
+	loop {
+	}
+}
+
+// ───────── перемещение и запись заново (раздел 5, «Использование») ─────────
+
+// перемещённое место наполняют заново и снова используют
+func refill() -> i64 {
+	var t = token(1)
+	let a = consume(t)
+	t = token(2)
+	a + weight(t)
+}
+
+// из записи забирают поле, остальные поля читают; записью поля значение снова целое
+func partial() -> i64 {
+	var p = pair(1, 2)
+	let a = consume(p.left)
+	let b = weight(p.right) + p.count
+	p.left = token(3)
+	a + b + total(p)
+}
+
+// часть части: из n.pair забрано поле, n.pair.right и n.last целы
+func nested() -> i64 {
+	let n = Nest(pair: pair(1, 2), last: token(3))
+	let a = consume(n.pair.left)
+	a + weight(n.pair.right) + weight(n.last)
+}
+
+// перемещённое целиком наполняют записью целиком
+func rebuild() -> i64 {
+	var p = pair(1, 2)
+	let a = consume_pair(p)
+	p = pair(3, 4)
+	a + total(p)
+}
+
+// параметр take забирают и пишут (12.60), возвращают
+func relay(take t: Token) -> i64 {
+	let a = consume(t)
+	t = token(a + 1)
+	consume(t)
+}
+
+func pass_on(take t: Token) -> Token {
+	t
+}
+
+// простое значение копируется: элемент массива простых и тип с impl Copy (10.2)
+func copies(xs: Array[i64, 3], d: Dir) -> i64 {
+	let a = xs[0]
+	let b = xs[0]
+	let e = d
+	let f = d
+	a + b
+}
+
+// непростой элемент читают на месте и отдают как mut; элементы с разными числами не
+// пересекаются (раздел 5, «Места»)
+func elements(mut xs: Array[Token, 2]) -> i64 {
+	grow(mut xs[0])
+	swap_weights(mut xs[0], mut xs[1])
+	weight(xs[1]) + weight(two_tokens()[0])
+}
+
+// разбор кортежа забирает его целиком
+func split() -> i64 {
+	let (a, b) = (token(1), token(2))
+	consume(a) + consume(b)
+}
+
+// ───────── ветви и циклы ─────────
+
+// ветвь, которая уходит, до слияния не доходит
+func early(c: bool) -> i64 {
+	let t = token(1)
+	if c {
+		return consume(t)
+	}
+	weight(t)
+}
+
+// вызов с результатом Never тоже уходит (9.36)
+func or_stop(c: bool) -> i64 {
+	let t = token(1)
+	if c {
+		let n = consume(t)
+		stop()
+	}
+	weight(t)
+}
+
+// перемещено в обеих ветвях и в обеих записано заново
+func both(c: bool) -> i64 {
+	var t = token(1)
+	var n = 0
+	if c {
+		n = consume(t)
+		t = token(2)
+	} else {
+		n = consume(t) + 1
+		t = token(3)
+	}
+	n + weight(t)
+}
+
+// перемещённое в проходе записывают к следующему проходу
+func passes(n: i64) -> i64 {
+	var t = token(0)
+	var sum = 0
+	var i = 0
+	while i < n {
+		sum += consume(t)
+		t = token(i)
+		i += 1
+	}
+	sum + weight(t)
+}
+
+// перемещение на выходе из цикла
+func exit_with(n: i64) -> i64 {
+	let t = token(n)
+	var i = 0
+	loop {
+		if i == n {
+			return consume(t)
+		}
+		i += 1
+	}
+}
+
+// переменная тела объявляется заново в каждом проходе
+func fresh_each_pass(n: i64) -> i64 {
+	var sum = 0
+	var i = 0
+	while i < n {
+		let t = token(i)
+		sum += consume(t)
+		i += 1
+	}
+	sum
+}
+
+// continue к внешнему циклу из вложенного
+func nested_loops(n: i64) -> i64 {
+	var t = token(1)
+	var sum = 0
+	var i = 0
+	outer: while i < n {
+		i += 1
+		var j = 0
+		loop {
+			j += 1
+			if j > 2 {
+				break
+			}
+			sum += consume(t)
+			t = token(j)
+			if j == i {
+				continue outer
+			}
+		}
+	}
+	sum + weight(t)
+}
+
+// ───────── один вызов (решение 30) ─────────
+
+// разные поля и элементы с разными числами не пересекаются; простое копируется при
+// вычислении; чтение во внутреннем вызове кончается до вызова
+func one_call(mut p: Pair, mut xs: Array[Token, 2]) -> i64 {
+	swap_weights(mut p.left, mut p.right)
+	swap_weights(mut xs[0], mut xs[1])
+	var n = 1
+	add_to(mut n, n)
+	put(mut p.left, weight(p.left))
+	n
+}
+
+// ───────── match (раздел 5, «Образцы») ─────────
+
+// непростые привязки match — представления: их читают и отдают для чтения
+func inspect(s: Slot) -> i64 {
+	match s {
+		case Full(t) {
+			if is_full(s) { weight(t) } else { 0 }
+		}
+		case Named(token, rank) { weight(token) + rank }
+		case Empty { 0 }
+	}
+}
+
+// в ветви без представлений место меняют (решение 29)
+func refill_empty(mut s: Slot) -> i64 {
+	match s {
+		case Empty {
+			s = Slot.Full(token(1))
+			0
+		}
+		case Named(_, rank) {
+			s = Slot.Empty
+			rank
+		}
+		else { 1 }
+	}
+}
+
+// match mut: привязки — изменяемые представления; ветвь без привязок меняет само место
+func step(mut p: Phase) {
+	match mut p {
+		case Idle { p = Phase.Run(0) }
+		case Run(n) { n += 1 }
+	}
+}
+
+func sharpen(mut s: Slot) {
+	match mut s {
+		case Full(t) { grow(mut t) }
+		case Named(token, rank) {
+			token.weight += rank
+			rank = 0
+		}
+		case Empty {}
+	}
+}
+
+// match take: привязки забирают части, место перемещено целиком (решение 9); условие видит
+// привязки представлениями
+func unwrap(take s: Slot) -> i64 {
+	match take s {
+		case Full(t) { consume(t) }
+		case Named(token, rank) if is_heavy(token) { consume(token) + rank }
+		else { 0 }
+	}
+}
+
+// после match take место наполняют заново
+func take_and_refill() -> i64 {
+	var s = Slot.Full(token(4))
+	let a = match take s {
+		case Full(t) { consume(t) }
+		else { 0 }
+	}
+	s = Slot.Empty
+	a + unwrap(s)
+}
+
+// match take простого — копия (решение 32)
+func flip(d: Dir) -> Dir {
+	match take d {
+		case Left { Dir.Right }
+		case Right { Dir.Left }
+	}
+}
+
+// временное значение сравнивается как в match take (12.62)
+func from_call() -> i64 {
+	match make_slot(20) {
+		case Full(t) if is_heavy(t) { consume(t) }
+		else { 0 }
+	}
+}
+
+// условие ветви читает сравниваемое, меняет другие места и отдаёт временные значения
+// (решения 15 и 31)
+func guarded(s: Slot) -> i64 {
+	var seen = token(0)
+	match s {
+		case Full(t) if is_heavy(t) and is_full(s) { weight(t) }
+		case Named(token, _) if grows(mut seen) { weight(token) + weight(seen) }
+		else { consume(token(5)) }
+	}
+}
+
+// представления элемента xs[0] не мешают писать в xs[1]
+func slots(mut xs: Array[Slot, 2]) -> i64 {
+	match xs[0] {
+		case Full(t) {
+			xs[1] = Slot.Empty
+			weight(t)
+		}
+		else { 0 }
+	}
+}
+
+test "владение" {
+	assert refill() == 3
+	assert partial() == 8
+	assert nested() == 6
+	assert rebuild() == 10
+	assert relay(token(5)) == 6
+	assert weight(pass_on(token(7))) == 7
+	assert copies([4, 5, 6], Dir.Left) == 8
+	var xs: Array[Token, 2] = [token(1), token(5)]
+	assert elements(mut xs) == 3
+	assert split() == 3
+	assert early(true) == 1
+	assert early(false) == 1
+	assert or_stop(false) == 1
+	assert both(true) == 3
+	assert both(false) == 5
+	assert passes(3) == 3
+	assert exit_with(2) == 2
+	assert fresh_each_pass(4) == 6
+	assert nested_loops(2) == 5
+	var p = pair(1, 2)
+	var ys = two_tokens()
+	assert one_call(mut p, mut ys) == 2
+	assert inspect(make_slot(7)) == 7
+	assert inspect(Slot.Named(token: token(3), rank: 4)) == 7
+	var s = Slot.Empty
+	assert refill_empty(mut s) == 0
+	assert is_full(s)
+	assert unwrap(Slot.Named(token: token(11), rank: 1)) == 12
+	assert unwrap(Slot.Named(token: token(2), rank: 1)) == 0
+	assert take_and_refill() == 4
+	assert from_call() == 20
+	assert guarded(Slot.Named(token: token(2), rank: 9)) == 3
+	assert guarded(Slot.Empty) == 5
+	var zs: Array[Slot, 2] = [make_slot(6), Slot.Empty]
+	assert slots(mut zs) == 6
+}
