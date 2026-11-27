@@ -1065,6 +1065,32 @@ const BODY_REJECTED: &[(&str, u32, &str)] = &[
         4,
         "имя n уже объявлено в строке 1: затенения нет (12.93)",
     ),
+    // переменная и параметр не называются как вариант своего типа (12.42)
+    (
+        "func f(o: Op) {\n\tlet Add = o\n}\n",
+        2,
+        "переменная Add типа Op называется как вариант Op.Add (12.42)",
+    ),
+    (
+        "func f(o: Op) {\n\tvar Sub: Op = o\n}\n",
+        2,
+        "переменная Sub типа Op называется как вариант Op.Sub (12.42)",
+    ),
+    (
+        "func f(n: i64,\n\tAdd: Op) {\n}\n",
+        2,
+        "параметр Add типа Op называется как вариант Op.Add (12.42)",
+    ),
+    (
+        "func f(mut Empty: E) {\n}\n",
+        1,
+        "параметр Empty типа E называется как вариант E.Empty (12.42)",
+    ),
+    (
+        "func f() {\n\tlet Num = E.Num(1)\n}\n",
+        2,
+        "переменная Num типа E называется как вариант E.Num (12.42)",
+    ),
     // несовпадение типов
     (
         "func f() -> i64 {\n\ttrue\n}\n",
@@ -2013,6 +2039,29 @@ fn local_names_may_hide_package_names_and_repeat_in_sibling_blocks() {
         .map(|l| l.name.as_str())
         .collect();
     assert_eq!(names, ["c", "a", "a", "a", "g"]);
+}
+
+#[test]
+fn variables_may_be_named_like_variants_of_other_types() {
+    // 12.42 запрещает только имя варианта своего типа: у i64 и записи вариантов нет, а Num —
+    // вариант E, не Op
+    let p = accepted(&format!(
+        "{}func f(o: Op, q: Q, Sub: i64) -> i64 {{\n\tlet Add = 1\n\tlet Num = o\n\tlet Two = q\n\tlet (Empty, b) = (2, o)\n\tAdd + Empty + Sub\n}}\n",
+        PRELUDE
+    ));
+    assert_eq!(
+        local_types(&p, "f"),
+        pairs(&[
+            ("o", "Op"),
+            ("q", "Q"),
+            ("Sub", "i64"),
+            ("Add", "i64"),
+            ("Num", "Op"),
+            ("Two", "Q"),
+            ("Empty", "i64"),
+            ("b", "Op")
+        ])
+    );
 }
 
 #[test]
