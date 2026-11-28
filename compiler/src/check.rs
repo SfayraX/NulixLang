@@ -27,7 +27,7 @@ use crate::ast;
 use crate::core::{
     Arg, BinOp, Block, Body, Case, Expr, ExprKind, Field, Func, FuncId, Local, LocalId, LocalKind,
     LoopId, Match, Param, Pattern, PatternKind, Payload, Place, Program, Step, Stmt, StmtKind,
-    Test, TuplePattern, Type, TypeDecl, TypeId, TypeKind, UnOp, Variant, VariantValue,
+    Test, TuplePattern, Type, TypeDecl, TypeId, TypeKind, UnOp, Use, Variant, VariantValue,
 };
 use crate::ir::{Mode, Scalar};
 use crate::patterns;
@@ -1083,18 +1083,23 @@ impl<'a> Checker<'a> {
                             }
                         }
                         let block = b.block(&decl.body, Some(&f.result))?;
-                        funcs[id] = Body {
+                        let mut body = Body {
                             locals: b.locals,
                             block,
                         };
+                        // владение — после имён и типов тела, до следующего тела (раздел 7)
+                        crate::moves::check(&self.program, &mut body)?;
+                        funcs[id] = body;
                     }
                     BodyOf::Test(k) => {
                         let mut b = BodyChecker::new(self, &tables, Type::Unit);
                         let block = b.block(&self.test_decls[k].body, Some(&Type::Unit))?;
-                        tests[k] = Body {
+                        let mut body = Body {
                             locals: b.locals,
                             block,
                         };
+                        crate::moves::check(&self.program, &mut body)?;
+                        tests[k] = body;
                     }
                 }
             }
@@ -1588,7 +1593,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
         }
         let v = self.expr(e, None)?;
         match v.kind {
-            ExprKind::Place(place) => {
+            ExprKind::Place(place, _) => {
                 self.writable(place.base, base_line)?;
                 Ok((place, v.ty))
             }
@@ -2290,7 +2295,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
                 "match mut — только у места: переменной, параметра, их поля или элемента",
             )?;
             Expr {
-                kind: ExprKind::Place(place),
+                kind: ExprKind::Place(place, Use::BorrowMut),
                 ty,
                 line: m.value.line,
             }
@@ -2298,7 +2303,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
             let v = self.expr(&m.value, None)?;
             // место типа Never сравнивают в match без ветвей: ветвей у него нет, и недостижимого
             // кода тоже (решение 28)
-            if matches!(v.kind, ExprKind::Place(_)) {
+            if matches!(v.kind, ExprKind::Place(..)) {
                 v
             } else {
                 self.valued(v)?
@@ -2308,7 +2313,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
         let mode = match m.mode {
             Some(ast::Mode::Mut) => Mode::Mut,
             Some(ast::Mode::Take) => Mode::Take,
-            None if matches!(value.kind, ExprKind::Place(_)) => Mode::Read,
+            None if matches!(value.kind, ExprKind::Place(..)) => Mode::Read,
             None => Mode::Take,
         };
         let mut heads: Vec<Head<'a>> = Vec::new();
@@ -3068,10 +3073,13 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
             let ty = self.locals[local].ty.clone();
             return Ok((
                 Expr {
-                    kind: ExprKind::Place(Place {
-                        base: local,
-                        path: Vec::new(),
-                    }),
+                    kind: ExprKind::Place(
+                        Place {
+                            base: local,
+                            path: Vec::new(),
+                        },
+                        Use::Copy,
+                    ),
                     ty,
                     line,
                 },
@@ -3348,7 +3356,7 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
                         return self.mismatch(e.line, &param.ty, &ty);
                     }
                     Expr {
-                        kind: ExprKind::Place(place),
+                        kind: ExprKind::Place(place, Use::BorrowMut),
                         ty,
                         line: e.line,
                     }
@@ -3439,13 +3447,13 @@ impl<'c, 'a> BodyChecker<'c, 'a> {
 fn step(cur: Expr, step: Step, ty: Type) -> Expr {
     let line = cur.line;
     let kind = match cur.kind {
-        ExprKind::Place(mut place) => {
+        ExprKind::Place(mut place, u) => {
             place.path.push(step);
-            ExprKind::Place(place)
+            ExprKind::Place(place, u)
         }
-        ExprKind::Part(base, mut path) => {
+        ExprKind::Part(base, mut path, u) => {
             path.push(step);
-            ExprKind::Part(base, path)
+            ExprKind::Part(base, path, u)
         }
         kind => ExprKind::Part(
             Box::new(Expr {
@@ -3454,6 +3462,7 @@ fn step(cur: Expr, step: Step, ty: Type) -> Expr {
                 line,
             }),
             vec![step],
+            Use::Copy,
         ),
     };
     Expr { kind, ty, line }

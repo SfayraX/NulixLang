@@ -1,9 +1,10 @@
 //! Проверка явного ядра в исходнике (`spec/core-check.md`): файл, объявления и сигнатуры,
-//! выражения и инструкции в телах, `match` — образцы, полнота и недостижимые ветви.
+//! выражения и инструкции в телах, `match` — образцы, полнота и недостижимые ветви, владение.
 //!
-//! Правильные объявления, тела и `match` принимаются, и проверенное дерево несёт их типы,
-//! режимы и простоту. Каждое правило нарушается по одному разу в отдельной программе, и проверка
-//! отвергает её с ожидаемыми строкой и сообщением.
+//! Правильные объявления, тела, `match` и владение принимаются, и проверенное дерево несёт их
+//! типы, режимы, простоту и то, копия, перемещение или заимствование каждое использование места.
+//! Каждое правило нарушается по одному разу в отдельной программе, и проверка отвергает её с
+//! ожидаемыми строкой и сообщением.
 
 use nulixc::check::check;
 use nulixc::core::{Payload, Program, Type, TypeKind};
@@ -2044,9 +2045,9 @@ fn local_names_may_hide_package_names_and_repeat_in_sibling_blocks() {
 #[test]
 fn variables_may_be_named_like_variants_of_other_types() {
     // 12.42 запрещает только имя варианта своего типа: у i64 и записи вариантов нет, а Num —
-    // вариант E, не Op
+    // вариант E, не Op. Op и Q непростые, поэтому параметры забираются (раздел 5)
     let p = accepted(&format!(
-        "{}func f(o: Op, q: Q, Sub: i64) -> i64 {{\n\tlet Add = 1\n\tlet Num = o\n\tlet Two = q\n\tlet (Empty, b) = (2, o)\n\tAdd + Empty + Sub\n}}\n",
+        "{}func f(take o: Op, take q: Q, Sub: i64) -> i64 {{\n\tlet Add = 1\n\tlet Num = o\n\tlet Two = q\n\tlet (Empty, b) = (2, Num)\n\tAdd + Empty + Sub\n}}\n",
         PRELUDE
     ));
     assert_eq!(
@@ -3319,4 +3320,1330 @@ fn match_branches_without_values_give_no_type() {
         PRELUDE
     ));
     assert_eq!(local_types(&p, "g"), pairs(&[("o", "Op"), ("v", "i64")]));
+}
+
+// ───────── владение ─────────
+
+use nulixc::core::{Body, Local, Step, Use, VariantValue};
+
+/// Объявления для случаев владения: непростые записи и перечисления, функции со всеми режимами
+/// параметров.
+const MOVES_PRELUDE: &str = "struct T {
+\tv: i64
+}
+struct S {
+\ta: T
+\tb: T
+\tn: i64
+}
+struct W {
+\ts: S
+\tt: T
+}
+enum E {
+\tA(T)
+\tB(x: T, y: i64)
+\tC
+}
+enum State {
+\tIdle
+\tRun(i64)
+}
+enum Dir {
+\tL
+\tR
+}
+impl Copy for Dir {}
+func mk() -> T {
+\tT(v: 0)
+}
+func mk_s() -> S {
+\tS(a: mk(), b: mk(), n: 0)
+}
+func mk_e() -> E {
+\tE.C
+}
+func pair() -> Array[T, 2] {
+\t[mk(), mk()]
+}
+func forever() -> Never {
+\tloop {
+\t}
+}
+func see(t: T) {
+}
+func see_s(s: S) {
+}
+func see_e(e: E) {
+}
+func eat(take t: T) {
+}
+func eat_s(take s: S) {
+}
+func eat_e(take e: E) {
+}
+func pass(take t: T) -> T {
+\tt
+}
+func copy_of(t: T) -> T {
+\tmk()
+}
+func change(mut t: T) {
+}
+func change_e(mut e: E) {
+}
+func ok(take t: T) -> bool {
+\ttrue
+}
+func seen(t: T) -> bool {
+\ttrue
+}
+func seen_e(e: E) -> bool {
+\ttrue
+}
+func changed(mut t: T) -> bool {
+\ttrue
+}
+func changed_e(mut e: E) -> bool {
+\ttrue
+}
+func lend(mut t: T) -> T {
+\tmk()
+}
+func mut_mut(mut a: T, mut b: T) {
+}
+func read_mut(a: T, mut b: T) {
+}
+func mut_read(mut a: T, b: T) {
+}
+func read_take(a: T, take b: T) {
+}
+func mut_take(mut a: T, take b: T) {
+}
+func take_read(take a: T, b: T) {
+}
+func mutn_mutn(mut a: i64, mut b: i64) {
+}
+func mutn_n(mut a: i64, b: i64) {
+}
+func mutn_s(mut a: i64, b: S) {
+}
+func mutn_t(mut a: i64, b: T) {
+}
+func mut_s_take(mut a: T, take b: S) {
+}
+func wrap(take t: T) -> E {
+\tE.A(t)
+}
+func n_mutn(a: i64, mut b: i64) {
+}
+func two_s() -> Array[S, 2] {
+\t[mk_s(), mk_s()]
+}
+func see_st(s: State) {
+}
+func changed_n(mut n: i64) -> bool {
+\ttrue
+}
+func read_read(a: T, b: T) {
+}
+";
+
+/// Случаи владения на объявлениях из `MOVES_PRELUDE`; строки — от начала случая.
+const MOVES_REJECTED: &[(&str, u32, &str)] = &[
+    // использование после перемещения, частичное перемещение (E0382)
+    (
+        "func f() {\n\tvar w = W(s: mk_s(), t: mk())\n\teat(w.t)\n\teat(w.s.a)\n\tw.s.a = mk()\n\tlet u = w\n}\n",
+        6,
+        "из w перемещено w.t в строке 3: целиком w не используют, пока w.t не записано заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar s = mk_s()\n\teat(s.a)\n\tif c {\n\t\ts.b = mk()\n\t}\n\tsee_s(s)\n}\n",
+        7,
+        "из s перемещено s.a в строке 3: целиком s не используют, пока s.a не записано заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet t = mk()\n\teat(t)\n\tsee(t)\n}\n",
+        4,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet s = mk_s()\n\teat(s.a)\n\tsee_s(s)\n}\n",
+        4,
+        "из s перемещено s.a в строке 3: целиком s не используют, пока s.a не записано заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet s = mk_s()\n\teat(s.a)\n\teat(s.b)\n\tsee_s(s)\n}\n",
+        5,
+        "из s перемещено s.a в строке 3: целиком s не используют, пока s.a не записано заново (E0382)",
+    ),
+    (
+        "func f() {\n\tvar s = mk_s()\n\teat(s.a)\n\teat(s.b)\n\ts.a = mk()\n\tsee_s(s)\n}\n",
+        6,
+        "из s перемещено s.b в строке 4: целиком s не используют, пока s.b не записано заново (E0382)",
+    ),
+    (
+        "func f() {\n\tvar s = mk_s()\n\teat_s(s)\n\ts.a = mk()\n}\n",
+        4,
+        "s перемещено целиком в строке 3: его наполняют только записью целиком (E0382)",
+    ),
+    (
+        "func f() {\n\tlet w = W(s: mk_s(), t: mk())\n\teat(w.s.a)\n\tsee(w.s.b)\n\tsee(w.t)\n\tsee_s(w.s)\n}\n",
+        6,
+        "из w.s перемещено w.s.a в строке 3: целиком w.s не используют, пока w.s.a не записано заново (E0382)",
+    ),
+    (
+        "func f() {\n\tvar w = W(s: mk_s(), t: mk())\n\teat_s(w.s)\n\tw.s.a = mk()\n}\n",
+        4,
+        "w.s перемещено целиком в строке 3: его наполняют только записью целиком (E0382)",
+    ),
+    (
+        "func f() {\n\tlet t = mk()\n\tmatch wrap(t) {\n\t\tcase A(u) {\n\t\t\teat(u)\n\t\t}\n\t\telse {}\n\t}\n\tsee(t)\n}\n",
+        9,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet t = mk()\n\teat(t)\n\tlet z0 = 0\n\tlet z1 = 0\n\tlet z2 = 0\n\tlet z3 = 0\n\tlet z4 = 0\n\tlet z5 = 0\n\tlet z6 = 0\n\tlet z7 = 0\n\tlet z8 = 0\n\tlet z9 = 0\n\tlet z10 = 0\n\tlet z11 = 0\n\tlet z12 = 0\n\tlet z13 = 0\n\tlet z14 = 0\n\tlet z15 = 0\n\tlet z16 = 0\n\tlet z17 = 0\n\tlet z18 = 0\n\tlet z19 = 0\n\tlet u = mk()\n\teat(u)\n\tsee(t)\n}\n",
+        26,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "struct Big {\n\tf0: T\n\tf1: T\n\tf2: T\n\tf3: T\n\tf4: T\n\tf5: T\n\tf6: T\n\tf7: T\n\tf8: T\n\tf9: T\n\tf10: T\n\tf11: T\n\tf12: T\n\tf13: T\n\tf14: T\n\tf15: T\n\tf16: T\n}\nfunc f(take b: Big, c: bool) {\n\teat(b.f0)\n\tif c {\n\t\tsee(b.f1)\n\t} else {\n\t\teat(b.f16)\n\t}\n\tsee(b.f16)\n}\n",
+        27,
+        "b.f16 перемещено в строке 25: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tvar s = mk_s()\n\teat_s(s)\n\ts.n += 1\n}\n",
+        4,
+        "s перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tvar t = mk()\n\teat(t)\n\tchange(mut t)\n}\n",
+        4,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\teat_e(e)\n\tmatch mut e {\n\t\telse {}\n\t}\n}\n",
+        4,
+        "e перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet e = mk_e()\n\teat_e(e)\n\tmatch e {\n\t\telse {}\n\t}\n}\n",
+        4,
+        "e перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet p = (mk(), mk())\n\tlet (a, b) = p\n\tsee(a)\n\tlet q = p\n}\n",
+        5,
+        "p перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet t = mk()\n\tlet s = S(a: t, b: t, n: 1)\n}\n",
+        3,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet t = mk()\n\tlet e = E.A(t)\n\tsee(t)\n}\n",
+        4,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet t = mk()\n\tlet xs: Array[T, 2] = [t, t]\n}\n",
+        3,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet t = mk()\n\tlet u = if c { t } else { mk() }\n\tsee(t)\n}\n",
+        4,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet t = mk()\n\tlet b = c and ok(t)\n\tsee(t)\n}\n",
+        4,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "test \"t\" {\n\tlet t = mk()\n\teat(t)\n\teat(t)\n}\n",
+        4,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    // что можно забрать (раздел 5, таблица; E0507, E0508)
+    (
+        "func f(t: T) {\n\teat(t)\n}\n",
+        2,
+        "t — параметр для чтения: его не забирают (E0507); забирает параметр take",
+    ),
+    (
+        "func f(mut t: T) {\n\teat(t)\n}\n",
+        2,
+        "t — параметр mut: его не забирают, к концу функции он цел (раздел 5; E0507)",
+    ),
+    (
+        "func f(s: S) {\n\teat(s.a)\n}\n",
+        2,
+        "s — параметр для чтения: s.a не забирают (E0507); забирает параметр take",
+    ),
+    (
+        "func f(mut s: S) {\n\teat(s.a)\n}\n",
+        2,
+        "s — параметр mut: s.a не забирают, к концу функции он цел (раздел 5; E0507)",
+    ),
+    (
+        "func f(t: T) -> T {\n\tt\n}\n",
+        2,
+        "t — параметр для чтения: его не забирают (E0507); забирает параметр take",
+    ),
+    (
+        "func f(mut t: T) -> T {\n\tt\n}\n",
+        2,
+        "t — параметр mut: его не забирают, к концу функции он цел (раздел 5; E0507)",
+    ),
+    (
+        "func f(take xs: Array[T, 2]) -> T {\n\txs[0]\n}\n",
+        2,
+        "xs[0]: из массива не забирают, массив держится только целиком (E0508); элемент читают на месте, заменяют записью или отдают как mut",
+    ),
+    (
+        "func f() -> T {\n\tpair()[0]\n}\n",
+        2,
+        "из временного массива не забирают: массив держится только целиком (E0508)",
+    ),
+    (
+        "func f(take xs: Array[S, 2]) {\n\teat(xs[0].a)\n}\n",
+        2,
+        "xs[0].a: из массива не забирают, массив держится только целиком (E0508); элемент читают на месте, заменяют записью или отдают как mut",
+    ),
+    (
+        "func f() {\n\teat(two_s()[0].a)\n}\n",
+        2,
+        "из временного массива не забирают: массив держится только целиком (E0508)",
+    ),
+    (
+        "func f() {\n\tlet e = mk_e()\n\tmatch e {\n\t\tcase A(t) {\n\t\t\teat(t)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "t — представление из match: его не забирают, не возвращают и не кладут в переменную (12.62; E0507)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\tmatch mut e {\n\t\tcase A(t) {\n\t\t\teat(t)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "t — представление из match mut: его не забирают, не возвращают и не кладут в переменную (12.62; E0507)",
+    ),
+    (
+        "func f(e: E) -> T {\n\tmatch e {\n\t\tcase A(t) { t }\n\t\telse { mk() }\n\t}\n}\n",
+        3,
+        "t — представление из match: его не забирают, не возвращают и не кладут в переменную (12.62; E0507)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase A(t) {\n\t\t\tlet u = t\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "t — представление из match: его не забирают, не возвращают и не кладут в переменную (12.62; E0507)",
+    ),
+    (
+        "func f(e: E) {\n\tmatch take e {\n\t\telse {}\n\t}\n}\n",
+        2,
+        "e — параметр для чтения: его не забирают (E0507); забирает параметр take",
+    ),
+    (
+        "func f(s: S) {\n\tmatch take s.a {\n\t\telse {}\n\t}\n}\n",
+        2,
+        "s — параметр для чтения: s.a не забирают (E0507); забирает параметр take",
+    ),
+    (
+        "func f(mut e: E) {\n\tmatch take e {\n\t\telse {}\n\t}\n}\n",
+        2,
+        "e — параметр mut: его не забирают, к концу функции он цел (раздел 5; E0507)",
+    ),
+    (
+        "func f(take xs: Array[E, 2]) {\n\tmatch take xs[0] {\n\t\telse {}\n\t}\n}\n",
+        2,
+        "xs[0]: из массива не забирают, массив держится только целиком (E0508); элемент читают на месте, заменяют записью или отдают как mut",
+    ),
+    (
+        "func f(e: E) {\n\tmatch e {\n\t\tcase A(t) {\n\t\t\tmatch take t {\n\t\t\t\telse {}\n\t\t\t}\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "t — представление из match: его не забирают, не возвращают и не кладут в переменную (12.62; E0507)",
+    ),
+    (
+        "func f() {\n\tlet e = mk_e()\n\tmatch take e {\n\t\tcase A(t) {\n\t\t\teat(t)\n\t\t\teat(t)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        6,
+        "t перемещено в строке 5: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    // ветви и циклы
+    (
+        "func f(c: bool) {\n\tlet t = mk()\n\tif c {\n\t\teat(t)\n\t}\n\tsee(t)\n}\n",
+        6,
+        "t перемещено в строке 4: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar t = mk()\n\tif c {\n\t\teat(t)\n\t\tt = mk()\n\t} else {\n\t\teat(t)\n\t}\n\tsee(t)\n}\n",
+        9,
+        "t перемещено в строке 7: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet t = mk()\n\tif c {\n\t\teat(t)\n\t} else {\n\t\teat(t)\n\t}\n\tsee(t)\n}\n",
+        8,
+        "t перемещено в строке 4: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet s = mk_s()\n\tif c {\n\t\teat_s(s)\n\t} else {\n\t\teat(s.a)\n\t}\n\tsee(s.b)\n}\n",
+        8,
+        "s перемещено в строке 4: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet s = mk_s()\n\tif c {\n\t\teat(s.a)\n\t} else {\n\t\teat(s.b)\n\t}\n\tsee(s.b)\n}\n",
+        8,
+        "s.b перемещено в строке 6: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar t = mk()\n\tlet b = ok(t) and (if c {\n\t\tt = mk()\n\t\ttrue\n\t} else {\n\t\tt = mk()\n\t\tfalse\n\t})\n\tsee(t)\n}\n",
+        10,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet e = mk_e()\n\tmatch e {\n\t\tcase C {\n\t\t\teat_e(e)\n\t\t}\n\t\telse {}\n\t}\n\tsee_e(e)\n}\n",
+        9,
+        "e перемещено в строке 5: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet e = mk_e()\n\tmatch take e {\n\t\tcase A(t) {\n\t\t\teat(t)\n\t\t}\n\t\telse {}\n\t}\n\tsee_e(e)\n}\n",
+        9,
+        "e перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet e = mk_e()\n\tmatch take e {\n\t\tcase A(t) {\n\t\t\teat(t)\n\t\t}\n\t\tcase B(x, _) {\n\t\t\teat(x)\n\t\t}\n\t\tcase C {}\n\t}\n\tsee_e(e)\n}\n",
+        12,
+        "e перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(take s: S) {\n\tmatch take s.a {\n\t\telse {}\n\t}\n\tsee(s.b)\n\tsee_s(s)\n}\n",
+        6,
+        "из s перемещено s.a в строке 2: целиком s не используют, пока s.a не записано заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet t = mk()\n\tloop {\n\t\teat(t)\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        4,
+        "t перемещено в прошлом проходе цикла, в строке 4: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet t = mk()\n\twhile ok(t) {\n\t}\n}\n",
+        3,
+        "t перемещено в прошлом проходе цикла, в строке 3: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f() {\n\tvar t = mk()\n\twhile ok(t) {\n\t\tt = mk()\n\t}\n\tsee(t)\n}\n",
+        6,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool, d: bool) {\n\tlet t = mk()\n\twhile c {\n\t\tif d {\n\t\t\teat(t)\n\t\t\tbreak\n\t\t}\n\t}\n\tsee(t)\n}\n",
+        9,
+        "t перемещено в строке 5: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool, d: bool) {\n\tvar t = mk()\n\tloop {\n\t\tloop {\n\t\t\teat(t)\n\t\t\tif c {\n\t\t\t\tbreak\n\t\t\t}\n\t\t}\n\t\tt = mk()\n\t\tif d {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        5,
+        "t перемещено в прошлом проходе цикла, в строке 5: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet t = mk()\n\tloop {\n\t\tif c {\n\t\t\teat(t)\n\t\t\tcontinue\n\t\t}\n\t\tbreak\n\t}\n}\n",
+        5,
+        "t перемещено в прошлом проходе цикла, в строке 5: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet s = mk_s()\n\tloop {\n\t\teat(s.a)\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        4,
+        "s.a перемещено в прошлом проходе цикла, в строке 4: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet s = mk_s()\n\tloop {\n\t\tsee_s(s)\n\t\teat(s.a)\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        4,
+        "из s перемещено s.a в прошлом проходе цикла, в строке 5: целиком s не используют, пока s.a не записано заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar s = mk_s()\n\tloop {\n\t\ts.a = mk()\n\t\teat_s(s)\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        4,
+        "s перемещено целиком в прошлом проходе цикла, в строке 5: его наполняют только записью целиком (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar w = W(s: mk_s(), t: mk())\n\tloop {\n\t\tw = W(s: mk_s(), t: mk())\n\t\teat(w.t)\n\t\teat(w.s.a)\n\t\tloop {\n\t\t\tsee(w.s.a)\n\t\t\tw.s = mk_s()\n\t\t\tif c {\n\t\t\t\tbreak\n\t\t\t}\n\t\t}\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        8,
+        "w.s.a перемещено в строке 6: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar w = W(s: mk_s(), t: mk())\n\tloop {\n\t\tw = W(s: mk_s(), t: mk())\n\t\teat(w.t)\n\t\teat_s(w.s)\n\t\tloop {\n\t\t\tsee_s(w.s)\n\t\t\tw.s = mk_s()\n\t\t\tif c {\n\t\t\t\tbreak\n\t\t\t}\n\t\t}\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        8,
+        "w.s перемещено в строке 6: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar e = mk_e()\n\twhile c {\n\t\tsee_e(e)\n\t\twhile c {\n\t\t\te = mk_e()\n\t\t\teat_e(e)\n\t\t}\n\t}\n}\n",
+        4,
+        "e перемещено в прошлом проходе цикла, в строке 7: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar s = mk_s()\n\tloop {\n\t\tsee(s.b)\n\t\teat(s.a)\n\t\twhile c {\n\t\t\ts = mk_s()\n\t\t\teat_s(s)\n\t\t}\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        4,
+        "s перемещено в прошлом проходе цикла, в строке 8: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar s = mk_s()\n\tloop {\n\t\tsee_s(s)\n\t\tif c {\n\t\t\teat(s.a)\n\t\t\twhile c {\n\t\t\t\ts = mk_s()\n\t\t\t\teat_s(s)\n\t\t\t}\n\t\t} else {\n\t\t\teat_s(s)\n\t\t}\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        4,
+        "s перемещено в прошлом проходе цикла, в строке 9: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar s = mk_s()\n\teat(s.a)\n\twhile c {\n\t\ts = mk_s()\n\t\teat_s(s)\n\t}\n\tsee(s.b)\n}\n",
+        8,
+        "s перемещено в строке 6: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar t = mk()\n\tloop {\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t\tt = mk()\n\t\teat(t)\n\t}\n\tsee(t)\n}\n",
+        10,
+        "t перемещено в строке 8: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar t = mk()\n\tloop {\n\t\twhile c {\n\t\t\tt = mk()\n\t\t\teat(t)\n\t\t}\n\t\tsee(t)\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        8,
+        "t перемещено в строке 6: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar t = mk()\n\tloop {\n\t\twhile c {\n\t\t\tsee_s(mk_s())\n\t\t}\n\t\tsee(t)\n\t\teat(t)\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        7,
+        "t перемещено в прошлом проходе цикла, в строке 8: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar t = mk()\n\tloop {\n\t\twhile c {\n\t\t\tt = mk()\n\t\t\teat(t)\n\t\t}\n\t\tsee(t)\n\t\tt = mk()\n\t\teat(t)\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        8,
+        "t перемещено в строке 6: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar t = mk()\n\tloop {\n\t\twhile c {\n\t\t\tsee(t)\n\t\t\tt = mk()\n\t\t\teat(t)\n\t\t}\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        5,
+        "t перемещено в прошлом проходе цикла, в строке 7: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar s = mk_s()\n\teat(s.b)\n\tloop {\n\t\tsee(s.a)\n\t\twhile c {\n\t\t\teat(s.a)\n\t\t}\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        5,
+        "s.a перемещено в прошлом проходе цикла, в строке 7: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar w = W(s: mk_s(), t: mk())\n\tvar e = mk_e()\n\twhile c {\n\t\tmatch take e {\n\t\t\tcase A(t) if seen(t) {\n\t\t\t\teat(w.s.b)\n\t\t\t}\n\t\t\telse {}\n\t\t}\n\t\te = mk_e()\n\t\tloop {\n\t\t\tif c {\n\t\t\t\tbreak\n\t\t\t}\n\t\t\tw.s.b = mk()\n\t\t\teat(w.s.b)\n\t\t}\n\t}\n}\n",
+        7,
+        "w.s.b перемещено в прошлом проходе цикла, в строке 7: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet t = mk()\n\tvar s = mk_s()\n\tif c {\n\t\teat(t)\n\t\teat(s.a)\n\t} else {\n\t\teat(t)\n\t\teat(s.a)\n\t}\n\tsee(s.b)\n\tsee_s(s)\n}\n",
+        12,
+        "из s перемещено s.a в строке 6: целиком s не используют, пока s.a не записано заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet e = mk_e()\n\tlet u = mk()\n\teat(u)\n\tmatch e {\n\t\tcase A(t) {}\n\t\tcase C {\n\t\t\tsee(u)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        8,
+        "u перемещено в строке 4: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet w = W(s: mk_s(), t: mk())\n\teat(w.t)\n\tif c {\n\t\teat(w.s.a)\n\t}\n\tsee(w.s.a)\n}\n",
+        7,
+        "w.s.a перемещено в строке 5: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet t = mk()\n\tloop {\n\t\tif c {\n\t\t\teat(t)\n\t\t\tbreak\n\t\t}\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n\tsee(t)\n}\n",
+        12,
+        "t перемещено в строке 5: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet t = mk()\n\tloop {\n\t\tsee(t)\n\t\tif c {\n\t\t\teat(t)\n\t\t\tcontinue\n\t\t}\n\t\tif c {\n\t\t\tcontinue\n\t\t}\n\t\tbreak\n\t}\n}\n",
+        4,
+        "t перемещено в прошлом проходе цикла, в строке 6: к следующему проходу его записывают заново (E0382)",
+    ),
+    // один вызов (решение 30)
+    (
+        "func f() {\n\tvar t = mk()\n\tmut_mut(mut t, mut t)\n}\n",
+        3,
+        "t отдано вызову mut_mut как mut, а дальше в аргументах t отдано как mut: места пересекаются (решение 30; E0499)",
+    ),
+    (
+        "func f(mut xs: Array[T, 2], i: i64, j: i64) {\n\tmut_mut(mut xs[i], mut xs[j])\n}\n",
+        2,
+        "xs[i] отдано вызову mut_mut как mut, а дальше в аргументах xs[j] отдано как mut: места пересекаются (решение 30; E0499)",
+    ),
+    (
+        "func f() {\n\tvar t = mk()\n\tread_mut(t, mut t)\n}\n",
+        3,
+        "t отдано вызову read_mut для чтения, а дальше в аргументах t отдано как mut: места пересекаются (решение 30; E0502)",
+    ),
+    (
+        "func f() {\n\tvar t = mk()\n\tmut_read(mut t, t)\n}\n",
+        3,
+        "t отдано вызову mut_read как mut, а дальше в аргументах t отдано для чтения: места пересекаются (решение 30; E0502)",
+    ),
+    (
+        "func f() {\n\tlet t = mk()\n\tread_take(t, t)\n}\n",
+        3,
+        "t отдано вызову read_take для чтения, а дальше в аргументах t забирается: места пересекаются (решение 30; E0505)",
+    ),
+    (
+        "func f() {\n\tvar t = mk()\n\tmut_take(mut t, t)\n}\n",
+        3,
+        "t отдано вызову mut_take как mut, а дальше в аргументах t забирается: места пересекаются (решение 30; E0505)",
+    ),
+    (
+        "func f() {\n\tlet t = mk()\n\ttake_read(t, t)\n}\n",
+        3,
+        "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tlet t = mk()\n\tread_take(t, pass(t))\n}\n",
+        3,
+        "t отдано вызову read_take для чтения, а дальше в аргументах t забирается: места пересекаются (решение 30; E0505)",
+    ),
+    (
+        "func f() {\n\tvar t = mk()\n\tread_take(t, lend(mut t))\n}\n",
+        3,
+        "t отдано вызову read_take для чтения, а дальше в аргументах t отдано как mut: места пересекаются (решение 30; E0502)",
+    ),
+    (
+        "func f() {\n\tvar t = mk()\n\tmut_take(mut t, lend(mut t))\n}\n",
+        3,
+        "t отдано вызову mut_take как mut, а дальше в аргументах t отдано как mut: места пересекаются (решение 30; E0499)",
+    ),
+    (
+        "func f() {\n\tvar n = 1\n\tmutn_mutn(mut n, mut n)\n}\n",
+        3,
+        "n отдано вызову mutn_mutn как mut, а дальше в аргументах n отдано как mut: места пересекаются (решение 30; E0499)",
+    ),
+    (
+        "func f() {\n\tvar s = mk_s()\n\tmutn_s(mut s.n, s)\n}\n",
+        3,
+        "s.n отдано вызову mutn_s как mut, а дальше в аргументах s отдано для чтения: места пересекаются (решение 30; E0502)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar t = mk()\n\tread_take(t, if c {\n\t\tt = mk()\n\t\tmk()\n\t} else {\n\t\tmk()\n\t})\n}\n",
+        4,
+        "t отдано вызову read_take для чтения, а дальше в аргументах t записывается: места пересекаются (решение 30; E0506)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar t = mk()\n\tmut_take(mut t, if c {\n\t\tt = mk()\n\t\tmk()\n\t} else {\n\t\tmk()\n\t})\n}\n",
+        4,
+        "t отдано вызову mut_take как mut, а дальше в аргументах t записывается: места пересекаются (решение 30; E0506)",
+    ),
+    (
+        "func f() {\n\tvar s = mk_s()\n\tmut_s_take(mut s.a, s)\n}\n",
+        3,
+        "s.a отдано вызову mut_s_take как mut, а дальше в аргументах s забирается: места пересекаются (решение 30; E0505)",
+    ),
+    (
+        "func f(mut xs: Array[T, 2], i: i64, j: i64) {\n\tmut_mut(mut xs[i + 1], mut xs[j])\n}\n",
+        2,
+        "xs[…] отдано вызову mut_mut как mut, а дальше в аргументах xs[j] отдано как mut: места пересекаются (решение 30; E0499)",
+    ),
+    // представления (раздел 5, «Образцы»; решение 29)
+    (
+        "func f() {\n\tvar e = mk_e()\n\tmatch e {\n\t\tcase A(t) {\n\t\t\te = E.C\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "пока в ветви есть представления частей e, e и пересекающиеся с ним места не меняют и не забирают (раздел 5)",
+    ),
+    (
+        "func f() {\n\tlet e = mk_e()\n\tmatch e {\n\t\tcase A(t) {\n\t\t\teat_e(e)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "пока в ветви есть представления частей e, e и пересекающиеся с ним места не меняют и не забирают (раздел 5)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\tmatch e {\n\t\tcase A(t) {\n\t\t\tchange_e(mut e)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "пока в ветви есть представления частей e, e и пересекающиеся с ним места не меняют и не забирают (раздел 5)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\tmatch e {\n\t\tcase A(t) {\n\t\t\tmatch mut e {\n\t\t\t\telse {}\n\t\t\t}\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "пока в ветви есть представления частей e, e и пересекающиеся с ним места не меняют и не забирают (раздел 5)",
+    ),
+    (
+        "func f() {\n\tlet e = mk_e()\n\tmatch e {\n\t\tcase A(t) {\n\t\t\tmatch take e {\n\t\t\t\telse {}\n\t\t\t}\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "пока в ветви есть представления частей e, e и пересекающиеся с ним места не меняют и не забирают (раздел 5)",
+    ),
+    (
+        "func f(mut xs: Array[E, 2], i: i64) {\n\tmatch xs[i] {\n\t\tcase A(t) {\n\t\t\txs[1] = E.C\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "пока в ветви есть представления частей xs[i], xs[i] и пересекающиеся с ним места не меняют и не забирают (раздел 5)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\tmatch mut e {\n\t\tcase A(t) {\n\t\t\tsee_e(e)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "в ветви match mut e с привязками к e и пересекающимся с ним местам не обращаются: значение доступно через привязки (решение 29)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\tmatch mut e {\n\t\tcase A(t) {\n\t\t\te = E.C\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "в ветви match mut e с привязками к e и пересекающимся с ним местам не обращаются: значение доступно через привязки (решение 29)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\tmatch mut e {\n\t\tcase A(t) {\n\t\t\tmatch e {\n\t\t\t\telse {}\n\t\t\t}\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "в ветви match mut e с привязками к e и пересекающимся с ним местам не обращаются: значение доступно через привязки (решение 29)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\tlet d = mk_e()\n\tmatch e {\n\t\tcase A(t) {\n\t\t\tmatch d {\n\t\t\t\tcase A(u) {\n\t\t\t\t\te = E.C\n\t\t\t\t}\n\t\t\t\telse {}\n\t\t\t}\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        8,
+        "пока в ветви есть представления частей e, e и пересекающиеся с ним места не меняют и не забирают (раздел 5)",
+    ),
+    (
+        "func f(take xs: Array[E, 2]) {\n\tvar i = 0\n\tmatch mut i {\n\t\tcase n {\n\t\t\tmatch take xs[i] {\n\t\t\t\telse {}\n\t\t\t}\n\t\t}\n\t}\n}\n",
+        5,
+        "в ветви match mut i с привязками к i и пересекающимся с ним местам не обращаются: значение доступно через привязки (решение 29)",
+    ),
+    (
+        "func f() {\n\tvar s = State.Idle\n\tmatch mut s {\n\t\tcase Run(n) {\n\t\t\tsee_st(s)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "в ветви match mut s с привязками к s и пересекающимся с ним местам не обращаются: значение доступно через привязки (решение 29)",
+    ),
+    // условие ветви (решения 15 и 31)
+    (
+        "func f() {\n\tlet e = mk_e()\n\tlet u = mk()\n\tmatch e {\n\t\tcase A(t) if ok(u) {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "условие ветви не забирает мест, объявленных вне его, а здесь забирается u (решение 31)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\tmatch e {\n\t\tcase A(t) if changed_e(mut e) {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "условие ветви не меняет сравниваемое e и пересекающиеся с ним места (решение 15; E0510)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\tmatch mut e {\n\t\tcase A(t) if changed(mut t) {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "t — привязка этой ветви, часть сравниваемого e: условие ветви её не меняет (решение 15; E0510)",
+    ),
+    (
+        "func f() {\n\tlet e = mk_e()\n\tmatch take e {\n\t\tcase A(t) if ok(t) {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "условие ветви не забирает мест, объявленных вне его, а здесь забирается t (решение 31)",
+    ),
+    (
+        "func f() {\n\tlet s = mk_s()\n\tlet e = mk_e()\n\tmatch take e {\n\t\tcase A(t) if ok(s.a) {}\n\t\telse {}\n\t}\n}\n",
+        5,
+        "условие ветви не забирает мест, объявленных вне его, а здесь забирается s.a (решение 31)",
+    ),
+    (
+        "func f() {\n\tlet u = mk()\n\teat(u)\n\tlet e = mk_e()\n\tmatch e {\n\t\tcase A(t) if seen(u) {}\n\t\telse {}\n\t}\n}\n",
+        6,
+        "u перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\tlet d = mk_e()\n\tmatch e {\n\t\tcase A(t) if (match d {\n\t\t\tcase C if changed_e(mut e) { true }\n\t\t\telse { false }\n\t\t}) {}\n\t\telse {}\n\t}\n}\n",
+        6,
+        "условие ветви не меняет сравниваемое e и пересекающиеся с ним места (решение 15; E0510)",
+    ),
+    (
+        "func f() {\n\tvar e = mk_e()\n\tmatch mut e {\n\t\tcase B(x, y) if changed_n(mut y) {}\n\t\telse {}\n\t}\n}\n",
+        4,
+        "y — привязка этой ветви, часть сравниваемого e: условие ветви её не меняет (решение 15; E0510)",
+    ),
+    (
+        "func f(c: bool) {\n\tlet e = mk_e()\n\tlet d = mk_e()\n\tmatch e {\n\t\tcase A(t) if (if c {\n\t\t\tlet v = mk()\n\t\t\tmatch d {\n\t\t\t\tcase C if ok(v) { true }\n\t\t\t\telse { false }\n\t\t\t}\n\t\t} else {\n\t\t\tfalse\n\t\t}) {}\n\t\telse {}\n\t}\n}\n",
+        8,
+        "условие ветви не забирает мест, объявленных вне его, а здесь забирается v (решение 31)",
+    ),
+    // первой называется причина, а не её след в следующем проходе
+    (
+        "func f() {\n\tlet t = mk()\n\tlet u = mk()\n\teat(t)\n\teat(u)\n\tsee(t)\n\tsee(u)\n}\n",
+        6,
+        "t перемещено в строке 4: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(p: T, c: bool) {\n\tlet t = mk()\n\tloop {\n\t\tsee(t)\n\t\teat(t)\n\t\teat(p)\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        4,
+        "t перемещено в прошлом проходе цикла, в строке 5: к следующему проходу его записывают заново (E0382)",
+    ),
+    (
+        "func f(t: T, c: bool) {\n\tloop {\n\t\tsee(t)\n\t\teat(t)\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        4,
+        "t — параметр для чтения: его не забирают (E0507); забирает параметр take",
+    ),
+    (
+        "func f(c: bool) {\n\tlet e = mk_e()\n\tlet u = mk()\n\tloop {\n\t\tsee(u)\n\t\tmatch e {\n\t\t\tcase A(t) if ok(u) {}\n\t\t\telse {}\n\t\t}\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        7,
+        "условие ветви не забирает мест, объявленных вне его, а здесь забирается u (решение 31)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar e = mk_e()\n\tloop {\n\t\teat_e(e)\n\t\tmatch mut e {\n\t\t\tcase A(t) {\n\t\t\t\te = mk_e()\n\t\t\t}\n\t\t\telse {\n\t\t\t\te = mk_e()\n\t\t\t}\n\t\t}\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        5,
+        "e перемещено в строке 4: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+    ),
+    (
+        "func f(c: bool) {\n\tvar s = mk_s()\n\tloop {\n\t\teat_s(s)\n\t\ts.a = mk()\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+        5,
+        "s перемещено целиком в строке 4: его наполняют только записью целиком (E0382)",
+    ),
+];
+
+/// Правильные случаи на тех же объявлениях: каждый принимается.
+const MOVES_ACCEPTED: &[&str] = &[
+    // перемещённое записано заново
+    "func f() {\n\tvar t = mk()\n\teat(t)\n\tt = mk()\n\tsee(t)\n}\n",
+    // из записи забрано поле, остальное читается
+    "func f() {\n\tlet s = mk_s()\n\teat(s.a)\n\tsee(s.b)\n\tlet k = s.n\n}\n",
+    // забранное поле записано заново — запись снова целая
+    "func f() {\n\tvar s = mk_s()\n\teat(s.a)\n\ts.a = mk()\n\tsee_s(s)\n}\n",
+    // перемещённое целиком наполнено записью целиком
+    "func f() {\n\tvar s = mk_s()\n\teat_s(s)\n\ts = mk_s()\n\tsee_s(s)\n}\n",
+    // параметр take возвращается
+    "func f(take t: T) -> T {\n\tt\n}\n",
+    // непростой элемент читается на месте
+    "func f(xs: Array[T, 2]) {\n\tsee(xs[1])\n}\n",
+    // элемент временного массива читается на месте
+    "func f() {\n\tsee(pair()[1])\n}\n",
+    // простой элемент копируется
+    "func f(xs: Array[i64, 2]) -> i64 {\n\txs[0]\n}\n",
+    // ветвь с перемещением уходит до слияния
+    "func f(c: bool) {\n\tlet t = mk()\n\tif c {\n\t\teat(t)\n\t\treturn\n\t}\n\tsee(t)\n}\n",
+    // перемещённое в проходе записано к следующему
+    "func f(c: bool) {\n\tvar t = mk()\n\tloop {\n\t\teat(t)\n\t\tt = mk()\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n\tsee(t)\n}\n",
+    // перемещение на выходе из цикла
+    "func f(c: bool) {\n\tlet t = mk()\n\tloop {\n\t\tif c {\n\t\t\teat(t)\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+    // условие while забирает, тело записывает заново
+    "func f() {\n\tvar t = mk()\n\twhile ok(t) {\n\t\tt = mk()\n\t}\n}\n",
+    // вложенный цикл забирает и выходит, внешний записывает
+    "func f(c: bool) {\n\tvar t = mk()\n\tloop {\n\t\tloop {\n\t\t\teat(t)\n\t\t\tbreak\n\t\t}\n\t\tt = mk()\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+    // continue к внешнему циклу, переменная объявляется в каждом проходе
+    "func f() {\n\touter: loop {\n\t\tlet t = mk()\n\t\tloop {\n\t\t\teat(t)\n\t\t\tcontinue outer\n\t\t}\n\t}\n}\n",
+    // переменная тела объявляется заново в каждом проходе
+    "func f(c: bool) {\n\tloop {\n\t\tlet t = mk()\n\t\teat(t)\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+    // разные поля отдаются как mut одному вызову
+    "func f() {\n\tvar s = mk_s()\n\tmut_mut(mut s.a, mut s.b)\n}\n",
+    // элементы с разными числами не пересекаются
+    "func f(mut xs: Array[T, 2]) {\n\tmut_mut(mut xs[0], mut xs[1])\n}\n",
+    // внутренний вызов читает место, отданное как mut
+    "func f() {\n\tvar t = mk()\n\tmut_take(mut t, copy_of(t))\n}\n",
+    // условие if в аргументе читает место, отданное как mut
+    "func f() {\n\tvar t = mk()\n\tmut_take(mut t, if seen(t) { mk() } else { mk() })\n}\n",
+    // простое значение копируется после mut
+    "func f() {\n\tvar n = 1\n\tmutn_n(mut n, n)\n}\n",
+    // номер элемента копируется после mut
+    "func f(xs: Array[T, 2]) {\n\tvar i = 0\n\tmutn_t(mut i, xs[i])\n}\n",
+    // в ветви с представлениями место читается
+    "func f() {\n\tlet e = mk_e()\n\tmatch e {\n\t\tcase A(t) {\n\t\t\tsee_e(e)\n\t\t\tsee(t)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+    // в ветви без привязок место меняется
+    "func f() {\n\tvar e = mk_e()\n\tmatch e {\n\t\tcase C {\n\t\t\te = E.A(mk())\n\t\t}\n\t\telse {}\n\t}\n\tsee_e(e)\n}\n",
+    // ветвь только с простыми привязками меняет место
+    "func f() {\n\tvar e = mk_e()\n\tmatch e {\n\t\tcase B(_, y) {\n\t\t\te = E.C\n\t\t}\n\t\telse {}\n\t}\n}\n",
+    // match mut меняет значение через привязку
+    "func f() {\n\tvar e = mk_e()\n\tmatch mut e {\n\t\tcase A(t) {\n\t\t\tchange(mut t)\n\t\t\tt = mk()\n\t\t}\n\t\telse {}\n\t}\n}\n",
+    // смена состояния: ветвь без привязок пишет место (решение 29)
+    "func f() {\n\tvar s = State.Idle\n\tmatch mut s {\n\t\tcase Idle {\n\t\t\ts = State.Run(0)\n\t\t}\n\t\tcase Run(n) {\n\t\t\tn += 1\n\t\t}\n\t}\n}\n",
+    // match take простого — копия (решение 32)
+    "func f(d: Dir) -> i64 {\n\tmatch take d {\n\t\tcase L { 1 }\n\t\tcase R { 2 }\n\t}\n}\n",
+    // условие отдаёт временное значение
+    "func f() {\n\tlet e = mk_e()\n\tmatch e {\n\t\tcase A(t) if ok(mk()) {}\n\t\telse {}\n\t}\n}\n",
+    // условие меняет другое место
+    "func f() {\n\tlet e = mk_e()\n\tvar u = mk()\n\tmatch e {\n\t\tcase A(t) if changed(mut u) {}\n\t\telse {}\n\t}\n}\n",
+    // условие читает сравниваемое
+    "func f() {\n\tlet e = mk_e()\n\tmatch e {\n\t\tcase A(t) if seen_e(e) {}\n\t\telse {}\n\t}\n}\n",
+    // условие match mut читает сравниваемое
+    "func f() {\n\tvar e = mk_e()\n\tmatch mut e {\n\t\tcase A(t) if seen_e(e) {}\n\t\telse {}\n\t}\n}\n",
+    // условие match take читает привязку, тело её забирает
+    "func f() {\n\tlet e = mk_e()\n\tmatch take e {\n\t\tcase A(t) if seen(t) {\n\t\t\teat(t)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+    // условие match take читает сравниваемое: оно ещё цело
+    "func f() {\n\tlet e = mk_e()\n\tmatch take e {\n\t\tcase A(t) if ok(mk()) {}\n\t\tcase B(x, _) if seen_e(e) {}\n\t\telse {}\n\t}\n}\n",
+    // match по временному значению забирает привязку
+    "func f() {\n\tmatch mk_e() {\n\t\tcase A(t) if seen(t) {\n\t\t\teat(t)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+    // простое изменяемое представление копируется
+    "func f() {\n\tvar s = State.Idle\n\tmatch mut s {\n\t\tcase Run(n) {\n\t\t\tlet k = n\n\t\t}\n\t\telse {}\n\t}\n}\n",
+    // представление отдаётся для чтения
+    "func f(e: E) {\n\tmatch e {\n\t\tcase A(t) {\n\t\t\tsee(t)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+    // представления xs[0] не мешают писать xs[1]
+    "func f(mut xs: Array[E, 2]) {\n\tmatch xs[0] {\n\t\tcase A(t) {\n\t\t\txs[1] = E.C\n\t\t}\n\t\telse {}\n\t}\n}\n",
+    // номер элемента меняется в ветви с представлениями
+    "func f(xs: Array[E, 2]) {\n\tvar i = 0\n\tmatch xs[i] {\n\t\tcase A(t) {\n\t\t\ti = 1\n\t\t}\n\t\telse {}\n\t}\n}\n",
+    // в ветви match mut xs[0] читается xs[1]
+    "func f(mut xs: Array[E, 2]) {\n\tmatch mut xs[0] {\n\t\tcase A(t) {\n\t\t\tsee_e(xs[1])\n\t\t}\n\t\telse {}\n\t}\n}\n",
+    // ветвь уходит вызовом с результатом Never
+    "func f(c: bool) {\n\tlet t = mk()\n\tif c {\n\t\teat(t)\n\t\tforever()\n\t}\n\tsee(t)\n}\n",
+    // поле забирается и записывается в каждом проходе
+    "func f(c: bool) {\n\tvar s = mk_s()\n\tloop {\n\t\teat(s.a)\n\t\ts.a = mk()\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n\tsee_s(s)\n}\n",
+    // параметр take забирается и записывается
+    "func f(take t: T) {\n\teat(t)\n\tt = mk()\n\tsee(t)\n}\n",
+    // кортеж разбирается заново в каждом проходе
+    "func f(c: bool) {\n\tloop {\n\t\tlet (a, b) = (mk(), mk())\n\t\teat(a)\n\t\teat(b)\n\t\tif c {\n\t\t\tbreak\n\t\t}\n\t}\n}\n",
+    // каждая ветвь match начинается с одного состояния
+    "func f() {\n\tlet e = mk_e()\n\tlet u = mk()\n\tmatch e {\n\t\tcase A(t) {\n\t\t\teat(u)\n\t\t}\n\t\tcase B(x, _) {\n\t\t\teat(u)\n\t\t}\n\t\telse {}\n\t}\n}\n",
+    // копия до mut к тому же месту
+    "func f() {\n\tvar n = 1\n\tn_mutn(n, mut n)\n}\n",
+    // тело match take записывает сравниваемое заново
+    "func f() {\n\tvar e = mk_e()\n\tmatch take e {\n\t\tcase A(t) {\n\t\t\teat(t)\n\t\t\te = mk_e()\n\t\t}\n\t\telse {\n\t\t\te = mk_e()\n\t\t}\n\t}\n\tsee_e(e)\n}\n",
+    // условие меняет элемент с другим числом
+    "func f(mut xs: Array[E, 2]) {\n\tmatch xs[0] {\n\t\tcase A(t) if changed_e(mut xs[1]) {}\n\t\telse {}\n\t}\n}\n",
+    // условие отдаёт привязку своего match (решение 31)
+    "func f() {\n\tlet e = mk_e()\n\tmatch e {\n\t\tcase A(t) if (match mk_e() {\n\t\t\tcase A(u) { ok(u) }\n\t\t\telse { false }\n\t\t}) {}\n\t\telse {}\n\t}\n}\n",
+    // условие отдаёт имя, объявленное в нём самом (решение 31)
+    "func f(c: bool) {\n\tlet e = mk_e()\n\tmatch e {\n\t\tcase A(t) if (if c {\n\t\t\tlet v = mk()\n\t\t\tok(v)\n\t\t} else {\n\t\t\tfalse\n\t\t}) {}\n\t\telse {}\n\t}\n}\n",
+    // одно место дважды отдаётся одному вызову для чтения
+    "func f() {\n\tlet t = mk()\n\tread_read(t, t)\n}\n",
+];
+
+#[test]
+fn prelude_of_ownership_cases_is_accepted() {
+    accepted(MOVES_PRELUDE);
+}
+
+#[test]
+fn wrong_ownership_is_rejected() {
+    let prelude_lines = MOVES_PRELUDE.lines().count() as u32;
+    for (body, line, message) in MOVES_REJECTED {
+        let text = format!("{}{}", MOVES_PRELUDE, body);
+        let message = shift_lines(message, prelude_lines);
+        rejected(&text, prelude_lines + line, &message);
+    }
+}
+
+#[test]
+fn right_ownership_is_accepted() {
+    for body in MOVES_ACCEPTED {
+        accepted(&format!("{}{}", MOVES_PRELUDE, body));
+    }
+}
+
+#[test]
+fn ownership_is_checked_after_the_types_of_its_body() {
+    // раздел 7: владение тела — после его имён и типов, до следующего тела
+    let prelude_lines = MOVES_PRELUDE.lines().count() as u32;
+    let text = format!(
+        "{}func f() {{\n\tlet t = mk()\n\teat(t)\n\tsee(t)\n\tlet x: bool = 1\n}}\n",
+        MOVES_PRELUDE
+    );
+    rejected(
+        &text,
+        prelude_lines + 5,
+        "тип не совпадает: ожидался bool, здесь целое число",
+    );
+    let text = format!(
+        "{}func f() {{\n\tlet t = mk()\n\teat(t)\n\tsee(t)\n}}\nfunc g() {{\n\tlet x: bool = 1\n}}\n",
+        MOVES_PRELUDE
+    );
+    rejected(
+        &text,
+        prelude_lines + 4,
+        &shift_lines(
+            "t перемещено в строке 3: перемещённое не читают и не отдают, пока не запишут заново (E0382)",
+            prelude_lines,
+        ),
+    );
+}
+
+const MOVES: &str = include_str!("check/moves.nx");
+
+/// Обходит тело в порядке вычисления и для каждого места и части временного значения вызывает
+/// `seen` с режимом — тем, куда идёт значение: `Take` — в переменную, поле, кортеж, массив,
+/// вариант, параметр `take`, `return`, значение блока и операнд; `Read` и `Mut` — параметру и в
+/// `match` этих режимов.
+fn visit_block<'a>(b: &'a Block, seen: &mut dyn FnMut(&'a Expr, Mode)) {
+    for s in &b.stmts {
+        match &s.kind {
+            StmtKind::Let(_, e) | StmtKind::LetTuple(_, e) | StmtKind::Expr(e) => {
+                visit_expr(e, Mode::Take, seen)
+            }
+            StmtKind::Assign(place, _, e) => {
+                visit_steps(&place.path, seen);
+                visit_expr(e, Mode::Take, seen);
+            }
+            StmtKind::While(_, cond, body) => {
+                visit_expr(cond, Mode::Take, seen);
+                visit_block(body, seen);
+            }
+            StmtKind::Loop(_, body) => visit_block(body, seen),
+            StmtKind::Return(Some(e)) | StmtKind::Assert(e, _) => visit_expr(e, Mode::Take, seen),
+            StmtKind::Return(None) | StmtKind::Break(_) | StmtKind::Continue(_) => {}
+        }
+    }
+    if let Some(v) = &b.value {
+        visit_expr(v, Mode::Take, seen);
+    }
+}
+
+fn visit_steps<'a>(steps: &'a [Step], seen: &mut dyn FnMut(&'a Expr, Mode)) {
+    for step in steps {
+        if let Step::Elem(i) = step {
+            visit_expr(i, Mode::Take, seen);
+        }
+    }
+}
+
+fn visit_expr<'a>(e: &'a Expr, mode: Mode, seen: &mut dyn FnMut(&'a Expr, Mode)) {
+    match &e.kind {
+        ExprKind::Place(place, _) => {
+            visit_steps(&place.path, seen);
+            seen(e, mode);
+        }
+        ExprKind::Part(base, steps, _) => {
+            visit_expr(base, Mode::Take, seen);
+            visit_steps(steps, seen);
+            seen(e, mode);
+        }
+        ExprKind::Unary(_, x) | ExprKind::Convert(_, x) => visit_expr(x, Mode::Take, seen),
+        ExprKind::Binary(first, rest) => {
+            visit_expr(first, Mode::Take, seen);
+            for (_, x) in rest {
+                visit_expr(x, Mode::Take, seen);
+            }
+        }
+        ExprKind::And(items)
+        | ExprKind::Or(items)
+        | ExprKind::Tuple(items)
+        | ExprKind::Array(items) => {
+            for x in items {
+                visit_expr(x, Mode::Take, seen);
+            }
+        }
+        ExprKind::Call(_, args) => {
+            for a in args {
+                visit_expr(&a.value, a.mode, seen);
+            }
+        }
+        ExprKind::Record(_, fields) | ExprKind::Variant(_, _, VariantValue::Fields(fields)) => {
+            for (_, x) in fields {
+                visit_expr(x, Mode::Take, seen);
+            }
+        }
+        ExprKind::Variant(_, _, VariantValue::One(x)) => visit_expr(x, Mode::Take, seen),
+        ExprKind::If(branches, otherwise) => {
+            for (cond, block) in branches {
+                visit_expr(cond, Mode::Take, seen);
+                visit_block(block, seen);
+            }
+            if let Some(b) = otherwise {
+                visit_block(b, seen);
+            }
+        }
+        ExprKind::Match(m) => {
+            // место сравнивается режимом match, временное значение — как значение (12.62)
+            let mode = match m.value.kind {
+                ExprKind::Place(..) => m.mode,
+                _ => Mode::Take,
+            };
+            visit_expr(&m.value, mode, seen);
+            for c in &m.cases {
+                if let Some(g) = &c.guard {
+                    visit_expr(g, Mode::Take, seen);
+                }
+                visit_block(&c.body, seen);
+            }
+            if let Some(b) = &m.otherwise {
+                visit_block(b, seen);
+            }
+        }
+        ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Char(_)
+        | ExprKind::Unit
+        | ExprKind::Variant(_, _, VariantValue::None) => {}
+    }
+}
+
+/// Отметка места или части временного значения.
+fn mark(e: &Expr) -> Use {
+    match &e.kind {
+        ExprKind::Place(_, u) | ExprKind::Part(_, _, u) => *u,
+        other => panic!("ждали место или часть, а здесь {:?}", other),
+    }
+}
+
+/// Место текстом: имя, поля и номера; у части временного значения вместо имени — `…`.
+fn use_text(p: &Program, locals: &[Local], e: &Expr) -> String {
+    let (mut out, mut ty, steps) = match &e.kind {
+        ExprKind::Place(place, _) => (
+            locals[place.base].name.clone(),
+            locals[place.base].ty.clone(),
+            &place.path,
+        ),
+        ExprKind::Part(base, steps, _) => ("…".to_string(), base.ty.clone(), steps),
+        other => panic!("ждали место или часть, а здесь {:?}", other),
+    };
+    for step in steps {
+        match step {
+            Step::Field(f) => {
+                if let Type::Named(id) = &ty {
+                    if let TypeKind::Struct(fields) = &p.types[*id].kind {
+                        out.push('.');
+                        out.push_str(&fields[*f].name);
+                        ty = fields[*f].ty.clone();
+                    }
+                }
+            }
+            Step::Elem(i) => {
+                let index = match &i.kind {
+                    ExprKind::Int(v) => v.to_string(),
+                    ExprKind::Place(q, _) => locals[q.base].name.clone(),
+                    _ => "…".to_string(),
+                };
+                out.push_str(&format!("[{}]", index));
+                if let Type::Array(item, _) = &ty {
+                    ty = (**item).clone();
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Использования мест в теле функции по порядку вычисления: место текстом и отметка.
+fn uses(p: &Program, name: &str) -> Vec<(String, Use)> {
+    let body: &Body = &func(p, name).body;
+    let mut out = Vec::new();
+    visit_block(&body.block, &mut |e, _| {
+        out.push((use_text(p, &body.locals, e), mark(e)))
+    });
+    out
+}
+
+fn marks(items: &[(&str, Use)]) -> Vec<(String, Use)> {
+    items.iter().map(|&(s, u)| (s.to_string(), u)).collect()
+}
+
+#[test]
+fn moves_program_is_accepted() {
+    let p = accepted(MOVES);
+    let (copy, take, read, lend) = (Use::Copy, Use::Move, Use::Borrow, Use::BorrowMut);
+    // непростое перемещается туда, где значение кладут, и читается на месте параметром чтения;
+    // простое копируется (10.1, 10.2)
+    assert_eq!(
+        uses(&p, "refill"),
+        marks(&[("t", take), ("a", copy), ("t", read)])
+    );
+    assert_eq!(
+        uses(&p, "partial"),
+        marks(&[
+            ("p.left", take),
+            ("p.right", read),
+            ("p.count", copy),
+            ("a", copy),
+            ("b", copy),
+            ("p", read),
+        ])
+    );
+    assert_eq!(
+        uses(&p, "nested"),
+        marks(&[
+            ("n.pair.left", take),
+            ("a", copy),
+            ("n.pair.right", read),
+            ("n.last", read),
+        ])
+    );
+    assert_eq!(uses(&p, "pass_on"), marks(&[("t", take)]));
+    assert_eq!(uses(&p, "split"), marks(&[("a", take), ("b", take)]));
+    assert_eq!(
+        uses(&p, "copies"),
+        marks(&[
+            ("xs[0]", copy),
+            ("xs[0]", copy),
+            ("d", copy),
+            ("d", copy),
+            ("a", copy),
+            ("b", copy),
+        ])
+    );
+    // элемент массива и часть временного значения: на месте и как mut
+    assert_eq!(
+        uses(&p, "elements"),
+        marks(&[
+            ("xs[0]", lend),
+            ("xs[0]", lend),
+            ("xs[1]", lend),
+            ("xs[1]", read),
+            ("…[0]", read),
+        ])
+    );
+    // один вызов: простое копируется и после mut
+    assert_eq!(
+        uses(&p, "one_call"),
+        marks(&[
+            ("p.left", lend),
+            ("p.right", lend),
+            ("xs[0]", lend),
+            ("xs[1]", lend),
+            ("n", lend),
+            ("n", copy),
+            ("p.left", lend),
+            ("p.left", read),
+            ("n", copy),
+        ])
+    );
+    // match: без слова — чтение на месте, mut — для изменения, take — перемещение, у простого —
+    // копия (решение 32); временное значение места не имеет
+    assert_eq!(
+        uses(&p, "inspect"),
+        marks(&[
+            ("s", read),
+            ("s", read),
+            ("t", read),
+            ("token", read),
+            ("rank", copy),
+        ])
+    );
+    assert_eq!(uses(&p, "step"), marks(&[("p", lend)]));
+    assert_eq!(
+        uses(&p, "unwrap"),
+        marks(&[
+            ("s", take),
+            ("t", take),
+            ("token", read),
+            ("token", take),
+            ("rank", copy),
+        ])
+    );
+    assert_eq!(uses(&p, "flip"), marks(&[("d", copy)]));
+    assert_eq!(uses(&p, "from_call"), marks(&[("t", read), ("t", take)]));
+    assert_eq!(p.tests.len(), 1);
+}
+
+#[test]
+fn every_use_is_marked_by_where_the_value_goes() {
+    // раздел 5: простое копируется; непростое перемещается туда, где значение кладут, и
+    // читается на месте параметром чтения и в match без слова; параметру mut и в match mut
+    // место отдаётся для изменения
+    let mut texts = vec![
+        BODIES.to_string(),
+        MATCH.to_string(),
+        MOVES.to_string(),
+        MOVES_PRELUDE.to_string(),
+    ];
+    texts.extend(
+        MOVES_ACCEPTED
+            .iter()
+            .map(|b| format!("{}{}", MOVES_PRELUDE, b)),
+    );
+    let mut counts = [0usize; 4];
+    for text in &texts {
+        let p = accepted(text);
+        let bodies = p
+            .funcs
+            .iter()
+            .map(|f| &f.body)
+            .chain(p.tests.iter().map(|t| &t.body));
+        for body in bodies {
+            visit_block(&body.block, &mut |e, mode| {
+                let want = match (mode, p.is_simple(&e.ty)) {
+                    (Mode::Mut, _) => Use::BorrowMut,
+                    (_, true) => Use::Copy,
+                    (Mode::Take, false) => Use::Move,
+                    (Mode::Read, false) => Use::Borrow,
+                };
+                assert_eq!(mark(e), want, "строка {}\n{}", e.line, text);
+                counts[want as usize] += 1;
+            });
+        }
+    }
+    // встречается каждая отметка
+    assert!(counts.iter().all(|&n| n > 0), "{:?}", counts);
+}
+
+#[test]
+fn ownership_is_checked_in_near_linear_time() {
+    // состояние — постоянное дерево: ветвление стоит столько, сколько в ветвях изменилось, а
+    // имена, чья область кончилась, уходят из состояния
+    let n = 20_000;
+    let mut many = format!("{}func f(c: bool) {{\n", MOVES_PRELUDE);
+    for k in 0..n {
+        many.push_str(&format!(
+            "\tlet x{} = mk()\n\tif c {{\n\t\teat(x{})\n\t}}\n",
+            k, k
+        ));
+    }
+    many.push_str("}\n");
+    let mut wide = format!("{}enum Big {{\n", MOVES_PRELUDE);
+    for k in 0..n {
+        wide.push_str(&format!("\tV{}(T)\n", k));
+    }
+    wide.push_str("}\nfunc f(take b: Big) {\n\tmatch take b {\n");
+    for k in 0..n {
+        wide.push_str(&format!(
+            "\t\tcase V{}(t{}) {{\n\t\t\teat(t{})\n\t\t}}\n",
+            k, k, k
+        ));
+    }
+    wide.push_str("\t}\n}\n");
+    // вложенные циклы у предела вложенности (256): каждому нужно два прохода, чтобы найти своё
+    // состояние, и цикл начинает поиск с прошлого раза — иначе их было бы 2 в степени глубины
+    let depth = 240;
+    let mut deep = format!("{}func f(c: bool) {{\n", MOVES_PRELUDE);
+    for k in 0..depth {
+        let tab = "\t".repeat(k + 1);
+        deep.push_str(&format!(
+            "{0}var t{1} = mk()\n{0}loop {{\n{0}\tt{1} = mk()\n",
+            tab, k
+        ));
+    }
+    for k in (0..depth).rev() {
+        let tab = "\t".repeat(k + 1);
+        deep.push_str(&format!(
+            "{0}\teat(t{1})\n{0}\tif c {{\n{0}\t\tbreak\n{0}\t}}\n{0}}}\n",
+            tab, k
+        ));
+    }
+    deep.push_str("}\n");
+    // запись со многими полями: состояние её полей — такое же дерево, как у имён
+    let mut fields = format!("{}struct Big {{\n", MOVES_PRELUDE);
+    for k in 0..n {
+        fields.push_str(&format!("\tf{}: T\n", k));
+    }
+    fields.push_str("}\nfunc f(take b: Big, c: bool) {\n");
+    for k in 0..n {
+        fields.push_str(&format!("\tif c {{\n\t\teat(b.f{})\n\t}}\n", k));
+    }
+    fields.push_str("}\n");
+    for text in [many, wide, deep, fields] {
+        let start = std::time::Instant::now();
+        stack::run_scoped(|| accepted(&text));
+        // с большим запасом: при копии всего состояния на каждой ветви время росло квадратично —
+        // 3000 имён и ветвей шли 0,6 с в выпускной сборке, а 20 000 полей с ветвями — 3,9 с
+        assert!(start.elapsed().as_secs() < 30, "{:?}", start.elapsed());
+    }
+}
+
+#[test]
+fn long_field_paths_do_not_grow_the_stack() {
+    // разборщик не ограничивает длину пути из полей; путь, слияние и сравнение состояний
+    // обходятся без рекурсии, и проверка владения проходит длинный путь на потоке с малым стеком
+    let n = 5_000;
+    let mut text = String::from("struct U {\n\tv: i64\n}\n");
+    for k in 0..n {
+        text.push_str(&format!(
+            "struct C{} {{\n\ta: U\n\tnext: C{}\n}}\n",
+            k,
+            k + 1
+        ));
+    }
+    text.push_str(&format!(
+        "struct C{} {{\n\ta: U\n}}\nfunc eat(take u: U) {{\n}}\n",
+        n
+    ));
+    let deep = format!("x{}.a", ".next".repeat(n));
+    let near = format!("x{}.a", ".next".repeat(n - 1));
+    // ветви различаются в самом низу пути
+    text.push_str(&format!(
+        "func split(take x: C0, c: bool) {{\n\teat({0})\n\tif c {{\n\t\teat({1})\n\t}}\n\teat(x.a)\n}}\n",
+        deep, near
+    ));
+    // в начало цикла вход приходит целым, а обратная дуга — с перемещённым глубоким полем
+    text.push_str(&format!(
+        "func refill(take x: C0, c: bool) {{\n\tloop {{\n\t\t{0} = U(v: 0)\n\t\teat({0})\n\t\tif c {{\n\t\t\tbreak\n\t\t}}\n\t}}\n}}\n",
+        deep
+    ));
+    // у входа и обратной дуги перемещены разные глубокие поля
+    text.push_str(&format!(
+        "func both(take x: C0, c: bool) {{\n\teat({0})\n\tloop {{\n\t\tif c {{\n\t\t\teat({1})\n\t\t\t{1} = U(v: 0)\n\t\t}}\n\t\tif c {{\n\t\t\tbreak\n\t\t}}\n\t}}\n}}\n",
+        deep, near
+    ));
+    let program = stack::run_scoped(|| accepted(&text));
+    let mut funcs = program.funcs.clone();
+    for func in &mut funcs {
+        let name = func.name.clone();
+        let result = std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .stack_size(1024 * 1024)
+                .spawn_scoped(scope, || nulixc::moves::check(&program, &mut func.body))
+                .expect("не удалось создать поток")
+                .join()
+        });
+        assert!(matches!(result, Ok(Ok(()))), "{}", name);
+    }
 }
