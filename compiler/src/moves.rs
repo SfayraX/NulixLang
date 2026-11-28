@@ -19,6 +19,9 @@
 //! делается: копия, перемещение или заимствование (`core::Use`). Это читает перевод в IR.
 //!
 //! Рекурсия идёт по вложенности дерева, и её ограничивает предел вложенности разборщика.
+//! Длину пути из полей разборщик не ограничивает (`spec/grammar.md`, раздел 3), поэтому путь,
+//! слияние и сравнение состояний обходятся без рекурсии, а уничтожение спускается рекурсией
+//! только внутри одного дерева номеров: стек не растёт с длиной пути.
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -49,8 +52,9 @@ enum Node {
     Full,
     /// Ничего: значение перемещено.
     Moved(Moved),
-    /// Запись, из которой перемещена часть полей: состояние каждого поля по порядку.
-    Parts(Vec<Node>),
+    /// Запись, из которой перемещена часть полей: состояния полей по номерам. Поля, которых
+    /// здесь нет, целые, и хотя бы одно поле здесь есть.
+    Parts(Map),
 }
 
 /// Где место перемещено.
@@ -62,28 +66,28 @@ struct Moved {
     pass: Option<LoopId>,
 }
 
-static FULL: Node = Node::Full;
+const FULL: Node = Node::Full;
 
 #[derive(Debug, Clone)]
 struct State {
     /// Точка достижима.
     live: bool,
     /// Имена, из которых перемещено всё или часть. Остальные держат значение целиком.
-    moved: Moves,
+    moved: Map,
 }
 
 impl State {
     fn live() -> State {
         State {
             live: true,
-            moved: Moves::default(),
+            moved: Map::default(),
         }
     }
 
     fn dead() -> State {
         State {
             live: false,
-            moved: Moves::default(),
+            moved: Map::default(),
         }
     }
 
@@ -92,32 +96,84 @@ impl State {
     }
 }
 
-/// Разрядов номера имени на уровень дерева `Moves`.
+/// Разрядов номера на уровень дерева `Map`.
 const BITS: u32 = 4;
-/// Ветвей у узла дерева `Moves`.
+/// Ветвей у узла дерева `Map`.
 const FAN: usize = 1 << BITS;
 
 #[derive(Debug)]
 enum Trie {
-    /// Состояние одного имени; `Node::Full` не хранится.
+    /// Состояние по одному номеру; `Node::Full` не хранится.
     Leaf(Node),
     /// Ветви по очередному разряду номера, от старшего.
     Inner([Option<Rc<Trie>>; FAN]),
 }
 
-/// Состояния имён, где перемещено всё или часть, — постоянное дерево по разрядам номера имени.
-/// Копия состояния — одна ссылка, изменение копирует путь к имени, а слияние обходит только
-/// те части, которыми два состояния различаются: общие поддеревья у них одни и те же. Так
-/// ветвление стоит столько, сколько в ветвях изменилось, а не сколько имён перемещено.
+impl Trie {
+    /// Отдаёт в `out` поддеревья, которые уничтожатся вместе с этим узлом и у которых самих есть
+    /// поддеревья: их уничтожают без рекурсии. Общие поддеревья только теряют одну ссылку.
+    fn take_children(&mut self, out: &mut Vec<Rc<Trie>>) {
+        let last = |t: &Rc<Trie>| {
+            Rc::strong_count(t) == 1 && !matches!(&**t, Trie::Leaf(Node::Full | Node::Moved(_)))
+        };
+        match self {
+            Trie::Inner(children) => {
+                for child in children.iter_mut() {
+                    if child.as_ref().is_some_and(last) {
+                        out.extend(child.take());
+                    }
+                }
+            }
+            Trie::Leaf(Node::Parts(fields)) => {
+                if fields.root.as_ref().is_some_and(last) {
+                    out.extend(fields.root.take());
+                }
+            }
+            Trie::Leaf(_) => {}
+        }
+    }
+}
+
+/// Уничтожение без рекурсии по полям: у состояния записи с длинным путём из полей дерево
+/// глубокое. Узлы одного дерева уничтожаются как обычно — уровней в нём не больше, чем разрядов
+/// в номере, — а дерево полей записи, которое уходит вместе с ней, разбирается в цикле.
+impl Drop for Trie {
+    fn drop(&mut self) {
+        let Trie::Leaf(Node::Parts(fields)) = self else {
+            return;
+        };
+        let Some(root) = fields.root.take() else {
+            return;
+        };
+        if Rc::strong_count(&root) > 1 {
+            return;
+        }
+        let mut stack = vec![root];
+        while let Some(t) = stack.pop() {
+            if let Ok(mut t) = Rc::try_unwrap(t) {
+                t.take_children(&mut stack);
+            }
+        }
+    }
+}
+
+/// Состояния по номерам — имён в теле или полей записи, — постоянное дерево по разрядам номера.
+/// Копия — одна ссылка, изменение копирует путь к номеру, а слияние обходит только те части,
+/// которыми два дерева различаются: общие поддеревья у них одни и те же. Так ветвление стоит
+/// столько, сколько в ветвях изменилось, а не сколько имён или полей перемещено.
 #[derive(Debug, Clone, Default)]
-struct Moves {
+struct Map {
     /// Разрядов в номере: дерево покрывает номера меньше `FAN^depth`.
     depth: u32,
     root: Option<Rc<Trie>>,
 }
 
-impl Moves {
-    fn get(&self, id: LocalId) -> &Node {
+impl Map {
+    fn is_empty(&self) -> bool {
+        self.root.is_none()
+    }
+
+    fn get(&self, id: usize) -> &Node {
         if id >> (self.depth * BITS) != 0 {
             return &FULL;
         }
@@ -141,6 +197,27 @@ impl Moves {
         }
     }
 
+    /// Наименьший номер с состоянием и это состояние.
+    fn first(&self) -> Option<(usize, &Node)> {
+        let mut t = self.root.as_ref()?;
+        let mut id = 0;
+        for _ in 0..self.depth {
+            let Trie::Inner(children) = &**t else {
+                return None;
+            };
+            let (digit, child) = children
+                .iter()
+                .enumerate()
+                .find_map(|(d, c)| c.as_ref().map(|c| (d, c)))?;
+            id = (id << BITS) | digit;
+            t = child;
+        }
+        match &**t {
+            Trie::Leaf(node) => Some((id, node)),
+            Trie::Inner(_) => None,
+        }
+    }
+
     /// Дерево покрывает номера меньше `FAN^depth`; прежние номера уходят в ветвь 0.
     fn grow(&mut self, depth: u32) {
         while self.depth < depth {
@@ -153,7 +230,7 @@ impl Moves {
         }
     }
 
-    fn set(&mut self, id: LocalId, node: Node) {
+    fn set(&mut self, id: usize, node: Node) {
         let full = matches!(node, Node::Full);
         if full && matches!(self.get(id), Node::Full) {
             return;
@@ -166,12 +243,12 @@ impl Moves {
         self.root = put(self.root.as_ref(), id, self.depth, node);
     }
 
-    fn remove(&mut self, id: LocalId) {
+    fn remove(&mut self, id: usize) {
         self.set(id, Node::Full);
     }
 }
 
-fn put(t: Option<&Rc<Trie>>, id: LocalId, level: u32, node: Node) -> Option<Rc<Trie>> {
+fn put(t: Option<&Rc<Trie>>, id: usize, level: u32, node: Node) -> Option<Rc<Trie>> {
     if level == 0 {
         return match node {
             Node::Full => None,
@@ -191,76 +268,194 @@ fn put(t: Option<&Rc<Trie>>, id: LocalId, level: u32, node: Node) -> Option<Rc<T
     }
 }
 
-/// Слияние деревьев одной глубины. `both` — для имени, которое есть в обоих; имя только в
-/// `a` остаётся как есть, имя только в `b` проходит через `only_b` (у `None` — как есть).
-/// Одно и то же поддерево сливается само с собой в себя.
-fn merge_trie(
-    a: Option<&Rc<Trie>>,
-    b: Option<&Rc<Trie>>,
-    both: &dyn Fn(&Node, &Node) -> Node,
-    only_b: Option<&dyn Fn(&Node) -> Node>,
-) -> Option<Rc<Trie>> {
-    match (a, b) {
-        (None, None) => None,
-        (Some(x), None) => Some(x.clone()),
-        (None, Some(y)) => match only_b {
-            None => Some(y.clone()),
-            Some(f) => map_trie(y, f),
-        },
-        (Some(x), Some(y)) if Rc::ptr_eq(x, y) => Some(x.clone()),
-        (Some(x), Some(y)) => match (&**x, &**y) {
-            (Trie::Leaf(p), Trie::Leaf(q)) => Some(Rc::new(Trie::Leaf(both(p, q)))),
-            (Trie::Inner(p), Trie::Inner(q)) => {
-                let mut children: [Option<Rc<Trie>>; FAN] = Default::default();
-                for (k, child) in children.iter_mut().enumerate() {
-                    *child = merge_trie(p[k].as_ref(), q[k].as_ref(), both, only_b);
-                }
-                Some(Rc::new(Trie::Inner(children)))
-            }
-            // у деревьев одной глубины листья на одном уровне
-            _ => Some(x.clone()),
-        },
-    }
-}
-
-fn map_trie(t: &Rc<Trie>, f: &dyn Fn(&Node) -> Node) -> Option<Rc<Trie>> {
-    Some(Rc::new(match &**t {
-        Trie::Leaf(node) => Trie::Leaf(f(node)),
-        Trie::Inner(children) => {
-            let mut out: [Option<Rc<Trie>>; FAN] = Default::default();
-            for (k, child) in children.iter().enumerate() {
-                out[k] = child.as_ref().and_then(|c| map_trie(c, f));
-            }
-            Trie::Inner(out)
-        }
-    }))
-}
-
-fn same_trie(a: Option<&Rc<Trie>>, b: Option<&Rc<Trie>>) -> bool {
-    match (a, b) {
-        (None, None) => true,
-        (Some(x), Some(y)) => {
-            Rc::ptr_eq(x, y)
-                || match (&**x, &**y) {
-                    (Trie::Leaf(p), Trie::Leaf(q)) => same_node(p, q),
-                    (Trie::Inner(p), Trie::Inner(q)) => p
-                        .iter()
-                        .zip(q)
-                        .all(|(u, v)| same_trie(u.as_ref(), v.as_ref())),
-                    _ => false,
-                }
-        }
-        _ => false,
-    }
-}
-
 /// Деревья одной глубины: меньшее дорастает до большего.
-fn aligned(a: &Moves, b: &Moves) -> (Moves, Moves) {
+fn aligned(a: &Map, b: &Map) -> (Map, Map) {
     let depth = a.depth.max(b.depth);
     let (mut a, mut b) = (a.clone(), b.clone());
     a.grow(depth);
     b.grow(depth);
     (a, b)
+}
+
+/// Как сливаются состояния.
+#[derive(Debug, Clone, Copy)]
+enum Join {
+    /// Двух путей: перемещённое хоть на одном — перемещено.
+    Paths,
+    /// В начале цикла: слева вход, справа то, что пришло по обратной дуге. Место, пустое только
+    /// из-за обратной дуги, перемещено в прошлом проходе этого цикла.
+    Head(LoopId),
+}
+
+/// Отложенная работа слияния. Слияние идёт без рекурсии: у состояния записи с длинным путём из
+/// полей дерево глубокое.
+enum Task {
+    /// Слить два поддерева одной глубины и положить итог в стек итогов.
+    Join(Option<Rc<Trie>>, Rc<Trie>),
+    /// Собрать верхний узел из стека узлов: отмеченные в нём ветви берутся из стека итогов.
+    Inner,
+    /// Собрать состояние записи из итога с вершины стека — дерева полей глубины `depth`.
+    Parts(u32),
+}
+
+/// Узел, который собирается: ветви, известные сразу, и отметки ветвей, чьи итоги ещё считаются.
+struct Building {
+    children: [Option<Rc<Trie>>; FAN],
+    wait: u32,
+}
+
+/// Итог слияния двух поддеревьев одной глубины, если он известен без обхода, а иначе — работа.
+fn known(p: Option<&Rc<Trie>>, q: Option<&Rc<Trie>>, how: Join) -> Result<Option<Rc<Trie>>, Task> {
+    match (p, q) {
+        // номер только слева держит то же, что держал
+        (x, None) => Ok(x.cloned()),
+        // одно и то же поддерево сливается само с собой в себя
+        (Some(x), Some(y)) if Rc::ptr_eq(x, y) => Ok(Some(x.clone())),
+        // номер только справа после ветвей держит то же, а в начале цикла его места помечаются
+        // прошлым проходом
+        (None, Some(y)) if matches!(how, Join::Paths) => Ok(Some(y.clone())),
+        (x, Some(y)) => Err(Task::Join(x.cloned(), y.clone())),
+    }
+}
+
+fn parts_leaf(depth: u32, root: Option<Rc<Trie>>) -> Option<Rc<Trie>> {
+    root.map(|root| {
+        Rc::new(Trie::Leaf(Node::Parts(Map {
+            depth,
+            root: Some(root),
+        })))
+    })
+}
+
+/// Слияние обходит только те части, которыми деревья различаются.
+fn join_maps(a: &Map, b: &Map, how: Join) -> Map {
+    let (x, y) = aligned(a, b);
+    let mut tasks = match known(x.root.as_ref(), y.root.as_ref(), how) {
+        Ok(root) => {
+            return Map {
+                depth: x.depth,
+                root,
+            }
+        }
+        Err(task) => {
+            let mut tasks = Vec::with_capacity(2 * FAN);
+            tasks.push(task);
+            tasks
+        }
+    };
+    let mut nodes: Vec<Building> = Vec::with_capacity(4);
+    let mut done: Vec<Option<Rc<Trie>>> = Vec::with_capacity(2 * FAN);
+    while let Some(task) = tasks.pop() {
+        match task {
+            Task::Join(p, q) => join_step(p, q, how, &mut tasks, &mut nodes, &mut done),
+            Task::Inner => {
+                if let Some(mut node) = nodes.pop() {
+                    for k in (0..FAN).rev() {
+                        if node.wait & (1 << k) != 0 {
+                            node.children[k] = done.pop().flatten();
+                        }
+                    }
+                    done.push(Some(Rc::new(Trie::Inner(node.children))));
+                }
+            }
+            Task::Parts(depth) => {
+                let root = done.pop().flatten();
+                done.push(parts_leaf(depth, root));
+            }
+        }
+    }
+    Map {
+        depth: x.depth,
+        root: done.pop().flatten(),
+    }
+}
+
+fn join_step(
+    p: Option<Rc<Trie>>,
+    q: Rc<Trie>,
+    how: Join,
+    tasks: &mut Vec<Task>,
+    nodes: &mut Vec<Building>,
+    done: &mut Vec<Option<Rc<Trie>>>,
+) {
+    let (a, b) = match (p.as_deref(), &*q) {
+        (Some(Trie::Leaf(a)), Trie::Leaf(b)) => return join_node(a, b, how, tasks, done),
+        (None, Trie::Leaf(b)) => return join_node(&FULL, b, how, tasks, done),
+        (Some(Trie::Inner(a)), Trie::Inner(b)) => (Some(a), b),
+        (None, Trie::Inner(b)) => (None, b),
+        // у деревьев одной глубины листья на одном уровне
+        _ => return done.push(p.clone()),
+    };
+    // узел собирается после своих ветвей: его задача ложится под их задачи
+    tasks.push(Task::Inner);
+    let mut children: [Option<Rc<Trie>>; FAN] = Default::default();
+    let mut wait = 0;
+    for k in (0..FAN).rev() {
+        match known(a.and_then(|a| a[k].as_ref()), b[k].as_ref(), how) {
+            Ok(r) => children[k] = r,
+            Err(task) => {
+                wait |= 1 << k;
+                tasks.push(task);
+            }
+        }
+    }
+    nodes.push(Building { children, wait });
+}
+
+fn join_node(
+    a: &Node,
+    b: &Node,
+    how: Join,
+    tasks: &mut Vec<Task>,
+    done: &mut Vec<Option<Rc<Trie>>>,
+) {
+    let node = match (how, a, b) {
+        (Join::Paths, Node::Moved(m), _) | (Join::Paths, _, Node::Moved(m)) => Node::Moved(*m),
+        // место пусто и на входе — от прошлого прохода внешнего цикла, — и после тела этого
+        // цикла, которое само его переместило: ближе причина в этом цикле
+        (Join::Head(id), Node::Moved(e), Node::Moved(m))
+            if e.pass.is_some() && m.pass.is_none() =>
+        {
+            Node::Moved(Moved {
+                line: m.line,
+                pass: Some(id),
+            })
+        }
+        (Join::Head(_), Node::Moved(m), _) => Node::Moved(*m),
+        (Join::Head(id), _, Node::Moved(m)) => Node::Moved(Moved {
+            line: m.line,
+            pass: Some(id),
+        }),
+        (_, Node::Full, Node::Full) => Node::Full,
+        (_, Node::Parts(xs), Node::Full) | (Join::Paths, Node::Full, Node::Parts(xs)) => {
+            Node::Parts(xs.clone())
+        }
+        (Join::Head(_), Node::Full, Node::Parts(ys)) => {
+            return descend(None, ys, how, tasks, done);
+        }
+        (_, Node::Parts(xs), Node::Parts(ys)) => {
+            let (xs, ys) = aligned(xs, ys);
+            return descend(Some(&xs), &ys, how, tasks, done);
+        }
+    };
+    done.push(Some(Rc::new(Trie::Leaf(node))));
+}
+
+/// Слияние деревьев полей одной глубины в состояние записи.
+fn descend(
+    xs: Option<&Map>,
+    ys: &Map,
+    how: Join,
+    tasks: &mut Vec<Task>,
+    done: &mut Vec<Option<Rc<Trie>>>,
+) {
+    match known(xs.and_then(|xs| xs.root.as_ref()), ys.root.as_ref(), how) {
+        Ok(root) => done.push(parts_leaf(ys.depth, root)),
+        Err(task) => {
+            tasks.push(Task::Parts(ys.depth));
+            tasks.push(task);
+        }
+    }
 }
 
 /// Слияние двух путей: перемещённое хоть на одном — перемещено.
@@ -271,25 +466,9 @@ fn merge(a: &State, b: &State) -> State {
     if !b.live {
         return a.clone();
     }
-    let (x, y) = aligned(&a.moved, &b.moved);
-    let root = merge_trie(x.root.as_ref(), y.root.as_ref(), &merge_node, None);
     State {
         live: true,
-        moved: Moves {
-            depth: x.depth,
-            root,
-        },
-    }
-}
-
-fn merge_node(a: &Node, b: &Node) -> Node {
-    match (a, b) {
-        (Node::Moved(m), _) | (_, Node::Moved(m)) => Node::Moved(*m),
-        (Node::Full, Node::Full) => Node::Full,
-        (Node::Parts(xs), Node::Full) | (Node::Full, Node::Parts(xs)) => Node::Parts(xs.clone()),
-        (Node::Parts(xs), Node::Parts(ys)) => {
-            Node::Parts(xs.iter().zip(ys).map(|(x, y)| merge_node(x, y)).collect())
-        }
+        moved: join_maps(&a.moved, &b.moved, Join::Paths),
     }
 }
 
@@ -297,8 +476,7 @@ fn merge_all(states: &[State]) -> State {
     states.iter().fold(State::dead(), |acc, s| merge(&acc, s))
 }
 
-/// Начало цикла `id`: вход, слитый с тем, что пришло по обратной дуге. Место, пустое только
-/// из-за обратной дуги, перемещено в прошлом проходе этого цикла.
+/// Начало цикла `id`: вход, слитый с тем, что пришло по обратной дуге.
 fn merge_head(entry: &State, back: &State, id: LoopId) -> State {
     if !back.live {
         return entry.clone();
@@ -306,101 +484,80 @@ fn merge_head(entry: &State, back: &State, id: LoopId) -> State {
     if !entry.live {
         return back.clone();
     }
-    let (x, y) = aligned(&entry.moved, &back.moved);
-    let root = merge_trie(
-        x.root.as_ref(),
-        y.root.as_ref(),
-        &|e, b| merge_head_node(e, b, id),
-        Some(&|b| merge_head_node(&Node::Full, b, id)),
-    );
     State {
         live: true,
-        moved: Moves {
-            depth: x.depth,
-            root,
-        },
-    }
-}
-
-fn merge_head_node(entry: &Node, back: &Node, id: LoopId) -> Node {
-    match (entry, back) {
-        (Node::Moved(m), _) => Node::Moved(*m),
-        (_, Node::Moved(m)) => Node::Moved(Moved {
-            line: m.line,
-            pass: Some(id),
-        }),
-        (Node::Full, Node::Full) => Node::Full,
-        (Node::Parts(xs), Node::Full) => Node::Parts(xs.clone()),
-        (Node::Full, Node::Parts(ys)) => Node::Parts(
-            ys.iter()
-                .map(|y| merge_head_node(&Node::Full, y, id))
-                .collect(),
-        ),
-        (Node::Parts(xs), Node::Parts(ys)) => Node::Parts(
-            xs.iter()
-                .zip(ys)
-                .map(|(x, y)| merge_head_node(x, y, id))
-                .collect(),
-        ),
+        moved: join_maps(&entry.moved, &back.moved, Join::Head(id)),
     }
 }
 
 /// Состояния совпадают в том, что где держится; строки перемещений не сравниваются.
 fn same(a: &State, b: &State) -> bool {
-    if a.live != b.live {
-        return false;
-    }
-    let (x, y) = aligned(&a.moved, &b.moved);
-    same_trie(x.root.as_ref(), y.root.as_ref())
+    a.live == b.live && same_maps(&a.moved, &b.moved)
 }
 
-fn same_node(a: &Node, b: &Node) -> bool {
-    match (a, b) {
-        (Node::Full, Node::Full) | (Node::Moved(_), Node::Moved(_)) => true,
-        (Node::Parts(xs), Node::Parts(ys)) => xs.iter().zip(ys).all(|(x, y)| same_node(x, y)),
+/// Сравнение без рекурсии, как и слияние.
+fn same_maps(a: &Map, b: &Map) -> bool {
+    let (x, y) = aligned(a, b);
+    let mut pairs = Vec::new();
+    if !same_step(x.root.as_ref(), y.root.as_ref(), &mut pairs) {
+        return false;
+    }
+    while let Some((x, y)) = pairs.pop() {
+        match (&*x, &*y) {
+            (Trie::Inner(a), Trie::Inner(b)) => {
+                for (u, v) in a.iter().zip(b) {
+                    if !same_step(u.as_ref(), v.as_ref(), &mut pairs) {
+                        return false;
+                    }
+                }
+            }
+            (Trie::Leaf(Node::Full), Trie::Leaf(Node::Full))
+            | (Trie::Leaf(Node::Moved(_)), Trie::Leaf(Node::Moved(_))) => {}
+            (Trie::Leaf(Node::Parts(xs)), Trie::Leaf(Node::Parts(ys))) => {
+                let (xs, ys) = aligned(xs, ys);
+                if !same_step(xs.root.as_ref(), ys.root.as_ref(), &mut pairs) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Пара поддеревьев одной глубины: одно и то же поддерево совпадает с собой, поддерево с пустым —
+/// нет, а остальные пары откладываются для обхода.
+fn same_step(
+    x: Option<&Rc<Trie>>,
+    y: Option<&Rc<Trie>>,
+    pairs: &mut Vec<(Rc<Trie>, Rc<Trie>)>,
+) -> bool {
+    match (x, y) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            if !Rc::ptr_eq(x, y) {
+                pairs.push((x.clone(), y.clone()));
+            }
+            true
+        }
         _ => false,
     }
 }
 
-/// Первое перемещённое поле в записи, из которой перемещены поля, — путь к нему.
+/// Первое по номеру перемещённое поле в записи, из которой перемещены поля, — путь к нему.
 fn first_moved(node: &Node) -> Option<(Vec<usize>, Moved)> {
-    match node {
-        Node::Full => None,
-        Node::Moved(m) => Some((Vec::new(), *m)),
-        Node::Parts(fields) => fields.iter().enumerate().find_map(|(k, f)| {
-            first_moved(f).map(|(mut path, m)| {
-                path.insert(0, k);
-                (path, m)
-            })
-        }),
-    }
-}
-
-/// Место по пути `path` в `node` наполнено значением целиком. Возвращает, стало ли целым
-/// всё `node`.
-fn fill_node(node: &mut Node, path: &[Step]) -> bool {
-    match path.first() {
-        None => {
-            *node = Node::Full;
-            true
-        }
-        // массив держится только целиком
-        Some(Step::Elem(_)) => matches!(node, Node::Full),
-        Some(Step::Field(f)) => match node {
-            Node::Full => true,
-            // запись в часть перемещённого целиком значения отвергнута раньше
-            Node::Moved(_) => false,
+    let mut path = Vec::new();
+    let mut node = node;
+    loop {
+        match node {
+            Node::Full => return None,
+            Node::Moved(m) => return Some((path, *m)),
             Node::Parts(fields) => {
-                if fill_node(&mut fields[*f], &path[1..])
-                    && fields.iter().all(|x| matches!(x, Node::Full))
-                {
-                    *node = Node::Full;
-                    true
-                } else {
-                    false
-                }
+                let (k, child) = fields.first()?;
+                path.push(k);
+                node = child;
             }
-        },
+        }
     }
 }
 
@@ -464,11 +621,13 @@ struct Freeze {
     exclusive: bool,
 }
 
-/// Условие ветви: оно не меняет сравниваемое и привязки ветви (решение 15) и не забирает мест
-/// (решение 31).
+/// Условие ветви: оно не меняет сравниваемое и привязки ветви (решение 15) и не забирает мест,
+/// объявленных вне его (решение 31).
 struct Guard {
     place: Option<Place>,
     bindings: Vec<LocalId>,
+    /// Имена, объявленные в самом условии: они создаются заново при каждом его вычислении.
+    inner: Vec<LocalId>,
 }
 
 struct Walker<'a> {
@@ -550,6 +709,10 @@ impl<'a> Walker<'a> {
         self.state.moved.remove(id);
         if let Some(scope) = self.scopes.last_mut() {
             scope.push(id);
+        }
+        // имя из условия живёт только в нём: отдать его может само условие, но не условия внутри
+        if let Some(g) = self.guards.last_mut() {
+            g.inner.push(id);
         }
     }
 
@@ -874,7 +1037,7 @@ impl<'a> Walker<'a> {
                 }
                 Node::Parts(fields) => match place.path.get(k) {
                     Some(Step::Field(f)) => {
-                        node = &fields[*f];
+                        node = fields.get(*f);
                         k += 1;
                     }
                     _ => {
@@ -948,7 +1111,7 @@ impl<'a> Walker<'a> {
                     return Some(whole_write_message(&text, self.earlier(*m), m.line));
                 }
                 Node::Parts(fields) => match step {
-                    Step::Field(f) => node = &fields[*f],
+                    Step::Field(f) => node = fields.get(*f),
                     Step::Elem(_) => return None,
                 },
             }
@@ -956,31 +1119,32 @@ impl<'a> Walker<'a> {
         None
     }
 
-    /// Условие ветви ничего не забирает (решение 31) и не меняет сравниваемое, пересекающиеся с
-    /// ним места и привязки ветви (решение 15).
+    /// Условие ветви не забирает мест, объявленных вне его (решение 31), и не меняет
+    /// сравниваемое, пересекающиеся с ним места и привязки ветви (решение 15). Забирать
+    /// проверяется по самому внутреннему условию — имена внешнего для него объявлены вне его, —
+    /// а менять — по всем.
     fn guard_problem(&self, place: &Place, a: Access) -> Option<String> {
         match a {
             Access::Read => None,
-            Access::Take => self.guards.last().map(|_| {
-                format!(
-                    "условие ветви не забирает мест, а здесь забирается {} (решение 31)",
-                    self.place_text(place.base, &place.path)
-                )
-            }),
+            Access::Take => self
+                .guards
+                .last()
+                .filter(|g| !g.inner.contains(&place.base))
+                .map(|_| {
+                    format!(
+                        "условие ветви не забирает мест, объявленных вне его, а здесь забирается {} (решение 31)",
+                        self.place_text(place.base, &place.path)
+                    )
+                }),
             Access::Write | Access::Lend => self.guards.iter().rev().find_map(|g| {
+                // менять привязки можно только у match mut, а у него сравнивается место
                 if g.bindings.contains(&place.base) {
-                    let name = &self.locals[place.base].name;
-                    return Some(match &g.place {
-                        Some(x) => format!(
-                            "{} — привязка этой ветви, часть сравниваемого {}: условие ветви её не меняет (решение 15; E0510)",
-                            name,
-                            self.place_text(x.base, &x.path)
-                        ),
-                        None => format!(
-                            "{} — привязка этой ветви: условие ветви её не меняет (решение 15; E0510)",
-                            name
-                        ),
-                    });
+                    let x = g.place.as_ref()?;
+                    return Some(format!(
+                        "{} — привязка этой ветви, часть сравниваемого {}: условие ветви её не меняет (решение 15; E0510)",
+                        self.locals[place.base].name,
+                        self.place_text(x.base, &x.path)
+                    ));
                 }
                 let x = g.place.as_ref().filter(|x| overlaps(place, x))?;
                 Some(format!(
@@ -1080,44 +1244,60 @@ impl<'a> Walker<'a> {
         )
     }
 
-    /// Место перемещено. Перемещают только поля записей, без элементов массивов.
+    /// Место перемещено. Перемещают только поля записей, без элементов массивов. Путь
+    /// проходится без рекурсии: он бывает длинным.
     fn mark_moved(&mut self, place: &Place, line: u32) {
-        let moved = Node::Moved(Moved { line, pass: None });
-        if place.path.iter().any(|s| matches!(s, Step::Elem(_))) {
-            return;
-        }
-        let counts: Vec<usize> = self
-            .path_types(place)
-            .iter()
-            .map(|ty| self.field_count(ty))
-            .collect();
-        let mut root = self.state.node(place.base).clone();
-        let mut node = &mut root;
-        for (step, &count) in place.path.iter().zip(&counts) {
+        let mut chain: Vec<(Map, usize)> = Vec::new();
+        let mut node = self.state.node(place.base).clone();
+        for step in &place.path {
             let Step::Field(f) = step else {
                 return;
             };
-            if let Node::Full = node {
-                *node = Node::Parts(vec![Node::Full; count]);
-            }
-            match node {
-                Node::Parts(fields) => node = &mut fields[*f],
+            let fields = match node {
+                Node::Full => Map::default(),
+                Node::Parts(fields) => fields,
                 // путь уже перемещён: перемещать нечего
-                _ => return,
-            }
+                Node::Moved(_) => return,
+            };
+            node = fields.get(*f).clone();
+            chain.push((fields, *f));
         }
-        *node = moved;
-        self.state.moved.set(place.base, root);
+        let mut cur = Node::Moved(Moved { line, pass: None });
+        while let Some((mut fields, f)) = chain.pop() {
+            fields.set(f, cur);
+            cur = Node::Parts(fields);
+        }
+        self.state.moved.set(place.base, cur);
     }
 
     /// Место наполнено записью целиком; запись, где не осталось перемещённых полей, целая.
+    /// Запись с нарушением — в часть значения, перемещённого целиком, — наполняет это значение
+    /// целиком: так нарушение не оставляет после себя перемещённых мест (раздел 7).
     fn fill(&mut self, place: &Place) {
+        let mut chain: Vec<(Map, usize)> = Vec::new();
         let mut node = self.state.node(place.base).clone();
-        if matches!(node, Node::Full) {
-            return;
+        for step in &place.path {
+            match (node, step) {
+                (Node::Parts(fields), Step::Field(f)) => {
+                    node = fields.get(*f).clone();
+                    chain.push((fields, *f));
+                }
+                // ниже целого всё цело; массив держится только целиком
+                (Node::Full, _) | (Node::Parts(_), Step::Elem(_)) => return,
+                // запись с нарушением: перемещённое целиком наполняется целиком
+                (Node::Moved(_), _) => break,
+            }
         }
-        fill_node(&mut node, &place.path);
-        self.state.moved.set(place.base, node);
+        let mut cur = Node::Full;
+        while let Some((mut fields, f)) = chain.pop() {
+            fields.set(f, cur);
+            cur = if fields.is_empty() {
+                Node::Full
+            } else {
+                Node::Parts(fields)
+            };
+        }
+        self.state.moved.set(place.base, cur);
     }
 
     fn call(&mut self, id: FuncId, args: &mut [Arg]) -> R<()> {
@@ -1211,6 +1391,7 @@ impl<'a> Walker<'a> {
                 self.guards.push(Guard {
                     place: place.clone(),
                     bindings: bindings.clone(),
+                    inner: Vec::new(),
                 });
                 let r = self.expr(g, Ctx::Value);
                 self.guards.pop();
@@ -1264,18 +1445,6 @@ impl<'a> Walker<'a> {
 
     // ───────── типы и текст ─────────
 
-    /// Типы мест на пути: для каждого шага — тип того, из чего он идёт.
-    fn path_types(&self, place: &Place) -> Vec<Type> {
-        let mut ty = self.locals[place.base].ty.clone();
-        let mut out = Vec::new();
-        for step in &place.path {
-            let next = self.step_type(&ty, step);
-            out.push(ty);
-            ty = next;
-        }
-        out
-    }
-
     fn step_type(&self, ty: &Type, step: &Step) -> Type {
         match (ty, step) {
             (Type::Named(id), Step::Field(f)) => match &self.p.types[*id].kind {
@@ -1284,16 +1453,6 @@ impl<'a> Walker<'a> {
             },
             (Type::Array(item, _), Step::Elem(_)) => (**item).clone(),
             _ => Type::Unit,
-        }
-    }
-
-    fn field_count(&self, ty: &Type) -> usize {
-        match ty {
-            Type::Named(id) => match &self.p.types[*id].kind {
-                TypeKind::Struct(fields) => fields.len(),
-                TypeKind::Enum(_) => 0,
-            },
-            _ => 0,
         }
     }
 
